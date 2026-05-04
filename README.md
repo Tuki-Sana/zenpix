@@ -365,26 +365,29 @@ TypeScript ラッパー（`js/index.ts`）を使うとより簡潔に記述で�
 
 実測環境の例: **macOS arm64（Apple M）・ローカル**（2026-04-14 頃、`zenpix` 0.1.4 npm バイナリ、Sharp 0.34）。**GitHub Actions**（`ubuntu-24.04`）でも同スクリプトを実行し、成果物 `benchmark-linux-x64` に `bench/results/benchmark.md` と `benchmark.json` が添付される。
 
-> 上表の条件では **Sharp の wall-clock が速い**。一方、次の「3840→1920」一点比較では **zenpix speed=10 が wall-clock で有利**のように、**解像度・パイプライン（デコード込みか・encoder speed）・マシン**で順位は入れ替わり得る。本マトリクスはトレンド解像度での **再現可能な比較**を先に置くためのもの。
+> 上表の条件では **Sharp の wall-clock が速い**。次の「3840→1920」一点比較でも wall-clock は Sharp がリードするが、**CPU user（全コアの合算 CPU 時間）は zenpix が大幅に小さく**、VPS などリソースを共有する環境では重要な差になる。0.7.0 で追加した `threads` オプションによりエンコードを並列化でき、wall-clock をさらに短縮できる。
 
 ### 3840×2160 PNG → 1920×1080 AVIF（手動計測・一点比較）
 
-macOS aarch64 (Apple M) / ReleaseFast
+macOS aarch64 (Apple M) / zenpix 0.7.0 / fixture: `bench_chara_chika.png`（イラスト系）  
+pipeline: decode PNG → resize (Lanczos-3) → AVIF (quality=60)  
+計測: `/usr/bin/time` で 1 プロセスずつ起動、wall-clock は中央値（warm-up 3 / measure 7）
 
 | ツール | wall-clock（中央値）| CPU user | ファイルサイズ |
 |--------|--------------------:|:--------:|---------------:|
-| **zenpix speed=10**（シングルスレッド）| **0.710s** | 0.66s | 2.5 MB |
-| zenpix speed=6（シングルスレッド）| 2.109s | 2.05s | 2.5 MB |
-| Sharp 0.34 quality=60（〜8コア）| 1.141s | 9.27s | 1.5 MB |
+| zenpix speed=10（シングルスレッド）| 0.512s | 0.530s | 106 KB |
+| zenpix speed=6（シングルスレッド）| 0.992s | 1.000s | 73 KB |
+| **zenpix speed=6（threads=14）** | **0.610s** | 1.060s | 73 KB |
+| Sharp quality=60（libvips 自動スレッド）| 0.422s | 2.630s | 63 KB |
 
 ### 比較の読み方
 
-- **環境による棲み分け（目安）**: 同一パイプラインでも **runner ごとに ratio の傾向が変わる**。**少コア VPS**（上の **VPS 実測**の表）では一部フィクスチャで zenpix が wall-clock で有利になりやすい一方、**高スペック・マルチコア**（上の **Mac 実測**の 3 回中央値）では **Sharp が有利になりやすい**。libvips / Sharp は並列化しやすく、zenpix 側はジョブによってはシングルスレッドに近い処理が支配的になりやすい、などの要因が重なる。**入力・解像度・エンコーダ設定でも順位は変わる**ため、コア数だけの二択ルールではない。運用では **CPU 予算・同時リクエスト・レイテンシとスループットのどちらを優先するか**に合わせて選び、必要なら両系統でベンチする。
-- **自動マトリクス**（`bench/bench.ts`）と**下の1ケース表**は別条件。前者は **decode+resize+AVIF（speed=6）** の 3 解像度、後者は **3840×2160 PNG → 1920×1080 AVIF**（zenpix は speed=10 / 6、Sharp は quality=60、macOS arm64、ReleaseFast）。解像度・品質・マシンが変われば順位は入れ替わり得る。
-- **wall-clock** は体感に直結。上表では zenpix speed=10 が **0.710s**、Sharp が **1.141s**。
-- **CPU user** は「そのプロセスが消費した CPU 時間の合計」。Sharp の **9.27s** は **複数コアに分散した合算**であり、「Sharp が遅い」のではなく「マルチスレッドで総仕事量を積み上げている」結果として大きく見える。**2コア VPS などリソースを奪い合う環境**では、この総量が他リクエストの遅延に効きやすい。
-- **ファイルサイズ**は同条件でも一致していない（Sharp 1.5 MB / zenpix 2.5 MB）。圧縮率まで揃えた公平比較ではない。
-- **結論**: 「あらゆる場面で Sharp より常に上」ではない。**低コア・CPU 予算を抑えたい用途**や、上記 VPS 実測のように **同一パイプラインで zenpix が wall-clock で有利になりうる条件**がある一方、**マルチコアでスループット最優先**なら Sharp を選ぶ棲み分けが現実的、という立ち位置。
+- **wall-clock**: Sharp が 0.422s でリード。zenpix speed=10 は 0.512s、マルチスレッド speed=6 は 0.610s。1 リクエストを単体で処理する wall-clock ならば Sharp が速い。
+- **CPU user** は「そのプロセスが消費した全コアの合算 CPU 時間」（`/usr/bin/time` の user 値、libvips ワーカースレッド込み）。Sharp の **2.630s** は zenpix speed=6 シングルの **2.6 倍**。**2〜4 コアの VPS で複数リクエストを同時処理するとき**、この差はコアの奪い合いとして他リクエストの遅延に直結しやすい。
+- **マルチスレッドの効果**: `threads=14` を指定すると speed=6 が **0.992s → 0.610s（38% 短縮）**。CPU user は 1.000s → 1.060s とほぼ横ばいで、wall-clock だけが縮まる。スレッド数を絞れば CPU budget と速度をトレードオフできる。
+- **ファイルサイズ**は quality=60 を揃えても実装差で異なる（106 / 73 / 63 KB）。圧縮率まで揃えた比較は `bench/bench-quality.ts` 参照。
+- **自動マトリクス**（`bench/bench.ts`）と本表は別条件。前者は speed=6 固定・3 解像度の再現可能な比較、本表はイラスト系フィクスチャ・speed=10 / 6 / マルチスレッドの一点計測。
+- **結論**: 単一リクエストの wall-clock なら Sharp。**CPU 予算を節約したい VPS・同時リクエストが多い環境**、または `threads` でリソースをコントロールしたい用途では zenpix が有利な立ち位置。
 
 ### ベンチの拡張（方針）
 
