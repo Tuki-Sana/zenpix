@@ -9,8 +9,9 @@ const std = @import("std");
 pub const decode = @import("pipeline/decode.zig");
 pub const encode = @import("pipeline/encode.zig");
 pub const resize = @import("pipeline/resize.zig");
-pub const crop   = @import("pipeline/crop.zig");
-pub const rotate = @import("pipeline/rotate.zig");
+pub const crop      = @import("pipeline/crop.zig");
+pub const rotate    = @import("pipeline/rotate.zig");
+pub const composite = @import("pipeline/composite.zig");
 
 const has_avif = @import("avif_options").has_avif;
 
@@ -531,7 +532,57 @@ export fn pict_rotate(
     return dst.data.ptr;
 }
 
-/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png / pict_crop / pict_rotate
+/// 四隅 BFS フラッドフィルで白系背景を透過化する。
+/// - channels: 3 (RGB) または 4 (RGBA)。
+/// - threshold: 0–255。各 R,G,B チャンネルが (255 - threshold) 以上なら「白系」とみなす。
+/// - 出力は常に RGBA (4ch)。
+/// 成功時: RGBA バッファ (pict_free_buffer(ptr, out_len) で解放)。失敗時: null。
+export fn pict_remove_background(
+    pixels: [*c]const u8,
+    width: u32,
+    height: u32,
+    channels: u8,
+    threshold: u8,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_len == null) return null;
+    if (width == 0 or height == 0) return null;
+    if (channels != 3 and channels != 4) return null;
+    const src_size = mul3SizeChecked(width, height, channels) orelse return null;
+
+    const buf = composite.removeBackground(
+        pixels[0..src_size], width, height, channels, threshold, ffi_alloc,
+    ) catch return null;
+
+    out_len.?.* = buf.len;
+    return buf.ptr;
+}
+
+/// RGBA 画像の四隅に rounded-rect アルファマスクを適用する。
+/// - 入力は RGBA (channels=4) のみ。
+/// - radius: 角の半径 (px)。0 で変化なし。
+/// - 出力は RGBA (4ch) の新バッファ。
+/// 成功時: RGBA バッファ (pict_free_buffer(ptr, out_len) で解放)。失敗時: null。
+export fn pict_round_corners(
+    pixels: [*c]const u8,
+    width: u32,
+    height: u32,
+    radius: u32,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_len == null) return null;
+    if (width == 0 or height == 0) return null;
+    const src_size = mul3SizeChecked(width, height, 4) orelse return null;
+
+    const buf = composite.roundCorners(
+        pixels[0..src_size], width, height, radius, ffi_alloc,
+    ) catch return null;
+
+    out_len.?.* = buf.len;
+    return buf.ptr;
+}
+
+/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png / pict_crop / pict_rotate / pict_remove_background / pict_round_corners
 /// が返したバッファを解放する。
 /// pict_decode_v3 の埋め込み ICC バッファ (*out_icc) も同じくこの関数で解放する。
 export fn pict_free_buffer(ptr: [*]u8, len: usize) void {
@@ -546,6 +597,7 @@ test {
     _ = resize;
     _ = crop;
     _ = rotate;
+    _ = composite;
     _ = mem.ring;
     _ = mem.tile;
     _ = platform;
@@ -957,5 +1009,70 @@ test "pict_rotate: null 入力で null 返却 (Category A)" {
     var out_h: u32 = 0;
     var out_len: usize = 0;
     const ptr = pict_rotate(@as([*c]const u8, null), 4, 4, 3, 6, &out_w, &out_h, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pict_remove_background テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "pict_remove_background: 全白 RGB → 全透過 RGBA (成功系)" {
+    const W: u32 = 4;
+    const H: u32 = 4;
+    var src = [_]u8{255} ** (W * H * 3);
+    var out_len: usize = 0;
+    const ptr = pict_remove_background(src[0..].ptr, W, H, 3, 30, &out_len) orelse
+        return error.Failed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expectEqual(@as(usize, W * H * 4), out_len);
+    // 全ピクセルが透過
+    var i: usize = 0;
+    while (i < W * H) : (i += 1) {
+        try std.testing.expectEqual(@as(u8, 0), ptr[i * 4 + 3]);
+    }
+}
+
+test "pict_remove_background: null 入力は null を返す (Category A)" {
+    var out_len: usize = 0;
+    const ptr = pict_remove_background(@as([*c]const u8, null), 4, 4, 3, 30, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_remove_background: channels=2 は null を返す" {
+    var src = [_]u8{255} ** (4 * 4 * 2);
+    var out_len: usize = 0;
+    const ptr = pict_remove_background(src[0..].ptr, 4, 4, 2, 30, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pict_round_corners テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "pict_round_corners: 角が透過になる (成功系)" {
+    const W: u32 = 10;
+    const H: u32 = 10;
+    var src = [_]u8{0} ** (W * H * 4);
+    // 全ピクセルを不透過に
+    var i: usize = 0;
+    while (i < W * H) : (i += 1) {
+        src[i * 4 + 3] = 255;
+    }
+    var out_len: usize = 0;
+    const ptr = pict_round_corners(src[0..].ptr, W, H, 3, &out_len) orelse
+        return error.Failed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expectEqual(@as(usize, W * H * 4), out_len);
+    // (0,0) は角の外側 → 透過
+    try std.testing.expectEqual(@as(u8, 0), ptr[(0 * W + 0) * 4 + 3]);
+    // (5,5) は中央 → 不透過
+    try std.testing.expectEqual(@as(u8, 255), ptr[(5 * W + 5) * 4 + 3]);
+}
+
+test "pict_round_corners: null 入力は null を返す (Category A)" {
+    var out_len: usize = 0;
+    const ptr = pict_round_corners(@as([*c]const u8, null), 4, 4, 2, &out_len);
     try std.testing.expectEqual(@as(?[*]u8, null), ptr);
 }

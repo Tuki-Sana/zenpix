@@ -126,6 +126,14 @@ const _rotate = _lib.func(
   "uint8 *pict_rotate(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint8 orientation, uint32 *out_w, uint32 *out_h, uint64 *out_len)"
 );
 
+const _remove_background = _lib.func(
+  "uint8 *pict_remove_background(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 threshold, uint64 *out_len)"
+);
+
+const _round_corners = _lib.func(
+  "uint8 *pict_round_corners(const uint8 *pixels, uint32 width, uint32 height, uint32 radius, uint64 *out_len)"
+);
+
 const _free = _lib.func("void pict_free_buffer(uint8 *ptr, uint64 len)");
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -210,6 +218,32 @@ export interface CropOptions {
   top: number;
   width: number;
   height: number;
+}
+
+export interface RemoveBackgroundOptions {
+  /**
+   * Flood-fill threshold 0–255 (default: 30).
+   * Each R, G, B channel must be >= (255 - threshold) to be considered "white-like".
+   * Lower values = stricter; higher values = more aggressive removal.
+   */
+  threshold?: number;
+}
+
+export interface FlattenBackgroundOptions {
+  /** Background red channel 0–255 (default: 255) */
+  r?: number;
+  /** Background green channel 0–255 (default: 255) */
+  g?: number;
+  /** Background blue channel 0–255 (default: 255) */
+  b?: number;
+}
+
+export interface RoundCornersOptions {
+  /**
+   * Corner radius in pixels, or "full" for a perfect circle/ellipse.
+   * When "full", radius = min(width, height) / 2.
+   */
+  radius: number | "full";
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -473,4 +507,107 @@ export function crop(image: ImageBuffer, options: CropOptions): ImageBuffer {
     out.icc = Buffer.from(image.icc);
   }
   return out;
+}
+
+/**
+ * Remove a white (or near-white) background from an image using BFS flood fill from the corners.
+ * Output is always RGBA (channels = 4). Transparent pixels have alpha = 0.
+ * Works well for icons on solid white backgrounds; interior white pixels enclosed by non-white
+ * regions are preserved.
+ * @throws {Error} if the operation fails
+ */
+export function removeBackground(
+  image: ImageBuffer,
+  options: RemoveBackgroundOptions = {},
+): ImageBuffer {
+  const threshold = Math.round(options.threshold ?? 30);
+  if (!Number.isInteger(threshold) || threshold < 0 || threshold > 255) {
+    throw new Error("zenpix: removeBackground threshold must be an integer 0–255");
+  }
+  if (image.channels !== 3 && image.channels !== 4) {
+    throw new Error("zenpix: removeBackground requires RGB (channels=3) or RGBA (channels=4) input");
+  }
+
+  const outLen = new BigUint64Array(1);
+  const ptr = _remove_background(
+    image.data, image.width, image.height, image.channels, threshold, outLen,
+  );
+  if (ptr === null) throw new Error("zenpix: removeBackground failed");
+
+  return {
+    data:     copyAndFree(ptr, outLen[0]),
+    width:    image.width,
+    height:   image.height,
+    channels: 4,
+  };
+}
+
+/**
+ * Apply a rounded-rectangle alpha mask to an RGBA image.
+ * Input must be RGBA (channels = 4). Output is RGBA.
+ * Pixels outside the rounded corners are set to alpha = 0.
+ * A 1-pixel anti-aliased transition is applied at the boundary.
+ * @throws {Error} if the operation fails
+ */
+export function roundCorners(
+  image: ImageBuffer,
+  options: RoundCornersOptions,
+): ImageBuffer {
+  if (image.channels !== 4) {
+    throw new Error("zenpix: roundCorners requires RGBA input (channels=4). Use removeBackground() or decode() first.");
+  }
+
+  const r = options.radius === "full"
+    ? Math.floor(Math.min(image.width, image.height) / 2)
+    : options.radius;
+
+  if (!Number.isInteger(r) || r < 0 || r > 0xFFFFFFFF) {
+    throw new Error("zenpix: roundCorners radius must be a non-negative integer");
+  }
+
+  const outLen = new BigUint64Array(1);
+  const ptr = _round_corners(image.data, image.width, image.height, r, outLen);
+  if (ptr === null) throw new Error("zenpix: roundCorners failed");
+
+  return {
+    data:     copyAndFree(ptr, outLen[0]),
+    width:    image.width,
+    height:   image.height,
+    channels: 4,
+  };
+}
+
+/**
+ * Composite an RGBA image onto a solid background color, producing an RGB image.
+ * Useful before removeBackground when the source is already partially transparent
+ * (e.g. PNG with transparent corners) but still has an unwanted white ring —
+ * flattening reconnects the ring to the outer area so removeBackground can reach it.
+ *
+ * If the input is already RGB (channels=3), it is returned as-is (no copy).
+ */
+export function flattenBackground(
+  image: ImageBuffer,
+  options: FlattenBackgroundOptions = {},
+): ImageBuffer {
+  if (image.channels === 3) return image;
+  if (image.channels !== 4) {
+    throw new Error("zenpix: flattenBackground requires RGB (channels=3) or RGBA (channels=4) input");
+  }
+
+  const bgR = options.r ?? 255;
+  const bgG = options.g ?? 255;
+  const bgB = options.b ?? 255;
+
+  const { width, height } = image;
+  const n = width * height;
+  const out = Buffer.allocUnsafe(n * 3);
+
+  for (let i = 0; i < n; i++) {
+    const a = image.data[i * 4 + 3] / 255;
+    out[i * 3 + 0] = Math.round(image.data[i * 4 + 0] * a + bgR * (1 - a));
+    out[i * 3 + 1] = Math.round(image.data[i * 4 + 1] * a + bgG * (1 - a));
+    out[i * 3 + 2] = Math.round(image.data[i * 4 + 2] * a + bgB * (1 - a));
+  }
+
+  return { data: out, width, height, channels: 3 };
 }

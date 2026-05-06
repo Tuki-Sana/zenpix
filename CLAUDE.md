@@ -17,13 +17,15 @@ zenpix — Zig 製の高速画像処理ライブラリ。JPEG/PNG/WebP/AVIF/GIF 
 | 0.5.0 | `encodeAvif()` に `threads` オプション追加 |
 | 0.6.0 | AVIF/GIF decode、`resize()` fit モード、`convert()` パイプライン |
 | 0.7.0 | CLI 追加（`npx zenpix`）— stdin/stdout、バッチ、リサイズ |
+| 0.8.0 (dev) | RGBA サポート — `removeBackground` / `roundCorners` / `flattenBackground`、CLI `--remove-bg` / `--round-corners` / `--flatten-bg` |
 
 ### 次にやること（優先順）
 
-1. **ブログ・X（旧 Twitter）投稿内容を考える** — 0.6.0〜0.7.0 の機能紹介。まだ着手していない
-2. **tsukasa-art の zenpix を 0.7.0 に更新** — 現在 `^0.6.0`。CLI は関係ないが揃えておく
-3. **Phase 12-B/C**（WebP encode 強化、`<picture>` AVIF+WebP）— 要件が固まったら
-4. **CLI の Python パッケージ化**（`pip install zenpix-cli`）— 将来候補
+1. **0.8.0 リリース** — feat/rgba-bg-removal ブランチを CI グリーン確認後 main にマージ → npm publish
+2. **ブログ・X（旧 Twitter）投稿内容を考える** — 0.7.0〜0.8.0 の機能紹介
+3. **tsukasa-art の zenpix を 0.8.0 に更新** — 現在 `^0.6.0`
+4. **Phase 12-B/C**（WebP encode 強化、`<picture>` AVIF+WebP）— 要件が固まったら
+5. **CLI の Python パッケージ化**（`pip install zenpix-cli`）— 将来候補
 
 ### ワークフロー上の注意
 
