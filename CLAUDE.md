@@ -43,6 +43,15 @@ zenpix — Zig 製の高速画像処理ライブラリ。JPEG/PNG/WebP/AVIF/GIF 
 - AVIF アップロード対応済み（`image/avif` を `ALLOWED_MIME` に追加）
 - Bun 運用、デプロイは VPS 上の `./deploy.sh`
 
+**VPS での zenpix バージョン確認・更新**:
+
+```bash
+npm list zenpix          # インストール済みバージョン確認
+bun install              # package.json の指定バージョンに更新（Bun 運用のため）
+```
+
+> `zenpix --version` / `npx zenpix --version` は VPS 環境では動かない。`npm list zenpix` で確認する。
+
 ---
 
 ## 主要コマンド

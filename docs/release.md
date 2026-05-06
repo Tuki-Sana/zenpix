@@ -250,6 +250,22 @@ cd wasm && npm test && npm publish --access public && cd ..
 
 ---
 
+## リリース後 — tsukasa-art VPS での更新
+
+新バージョンを publish したら VPS 側の `node_modules` を更新する。
+
+```bash
+# バージョン確認（インストール済み）
+npm list zenpix
+
+# 更新（Bun 運用）
+bun install
+```
+
+> `zenpix --version` や `npx zenpix --version` は VPS 環境では機能しない。バージョン確認は `npm list zenpix` で行う。
+
+---
+
 ## 参考（リリース本線では不要）
 
 - **ローカルで `zig-out` の lib を試す**（FFI / E2E）: `docs/operations.md` §8 末尾「ローカル / CI で今ビルドした lib を使う」
