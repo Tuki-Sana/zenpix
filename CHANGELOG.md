@@ -7,6 +7,23 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.8.0] - 2026-05-06
+
+### 追加
+
+- **`removeBackground(image, { threshold? })`**: 四隅 BFS フラッドフィルで白系背景を透過化する。入力 RGB / RGBA、出力常に RGBA。`threshold`（0–255、デフォルト 30）で「白とみなす範囲」を調整可能。内側の白（ロゴ盤面など）はリングで囲まれていれば除去されない。
+- **`roundCorners(image, { radius })`**: RGBA 画像の四隅に rounded-rect アルファマスクを適用。`radius` は px 数または `"full"`（完全な円形）。1px anti-alias 付き。入力は RGBA のみ。
+- **`flattenBackground(image, { r?, g?, b? })`**: RGBA 画像を指定色（デフォルト白）に合成して RGB に変換する。透過コーナーを持つ PNG に `removeBackground` を適用する前に使うと、外枠の白リングも一括除去できる。入力が RGB なら何もせずそのまま返す。
+- **CLI オプション追加**:
+  - `--remove-bg [threshold]` — 白背景除去
+  - `--round-corners <px|full>` — 角丸 / 完全な円形
+  - `--flatten-bg` — RGBA PNG を白に合成してから `--remove-bg` を適用（白リングも除去）
+
+### ABI 追加
+
+- `pict_remove_background(pixels, width, height, channels, threshold, out_len)` — FFI 公開
+- `pict_round_corners(pixels, width, height, radius, out_len)` — FFI 公開
+
 ## [0.7.0] - 2026-05-04
 
 ### 追加
