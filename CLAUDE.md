@@ -6,9 +6,9 @@ zenpix — Zig 製の高速画像処理ライブラリ。JPEG/PNG/WebP/AVIF/GIF 
 
 ---
 
-## 現在の状況（2026-05-04 時点）
+## 現在の状況（2026-05-06 時点）
 
-**最新バージョン: 0.7.0**（npm publish 済み、GitHub Release 済み）
+**最新バージョン: 0.8.0**（npm publish 済み、GitHub Release 済み）
 
 ### 直近でリリースした内容
 
@@ -17,15 +17,13 @@ zenpix — Zig 製の高速画像処理ライブラリ。JPEG/PNG/WebP/AVIF/GIF 
 | 0.5.0 | `encodeAvif()` に `threads` オプション追加 |
 | 0.6.0 | AVIF/GIF decode、`resize()` fit モード、`convert()` パイプライン |
 | 0.7.0 | CLI 追加（`npx zenpix`）— stdin/stdout、バッチ、リサイズ |
-| 0.8.0 (dev) | RGBA サポート — `removeBackground` / `roundCorners` / `flattenBackground`、CLI `--remove-bg` / `--round-corners` / `--flatten-bg` |
+| 0.8.0 | RGBA サポート — `removeBackground` / `roundCorners` / `flattenBackground`、CLI `--remove-bg` / `--round-corners` / `--flatten-bg` |
 
 ### 次にやること（優先順）
 
-1. **0.8.0 リリース** — feat/rgba-bg-removal ブランチを CI グリーン確認後 main にマージ → npm publish
-2. **ブログ・X（旧 Twitter）投稿内容を考える** — 0.7.0〜0.8.0 の機能紹介
-3. **tsukasa-art の zenpix を 0.8.0 に更新** — 現在 `^0.6.0`
-4. **Phase 12-B/C**（WebP encode 強化、`<picture>` AVIF+WebP）— 要件が固まったら
-5. **CLI の Python パッケージ化**（`pip install zenpix-cli`）— 将来候補
+1. **Ghost・Note・X への投稿** — ドラフト完成済み（`docs/blog-initial-release.md` / `docs/note-initial-release.md` / `docs/x-initial-release.md`）
+2. **Phase 12-B/C**（WebP encode 強化、`<picture>` AVIF+WebP）— 要件が固まったら
+3. **CLI の Python パッケージ化**（`pip install zenpix-cli`）— 将来候補
 
 ### ワークフロー上の注意
 
@@ -40,7 +38,7 @@ zenpix — Zig 製の高速画像処理ライブラリ。JPEG/PNG/WebP/AVIF/GIF 
 
 作者の個人 HP（Astro + Bun + PostgreSQL + Podman）。zenpix を画像変換に使用。
 
-- **現在の zenpix バージョン**: `^0.6.0`（次のセッションで 0.7.0 に上げる）
+- **現在の zenpix バージョン**: `^0.8.0`
 - 変更ファイル: `src/lib/utils/imageConvert.ts`、`src/pages/api/admin/upload.ts`、`upload-r18.ts`
 - AVIF アップロード対応済み（`image/avif` を `ALLOWED_MIME` に追加）
 - Bun 運用、デプロイは VPS 上の `./deploy.sh`

@@ -87,6 +87,22 @@ zenpix *.jpg --out-dir ./avif/ --threads 8
 | `--width / --height` | 出力サイズ | — |
 | `--fit` | `stretch` \| `contain` \| `cover` | `contain` |
 | `--out-dir` | バッチ出力先ディレクトリ | — |
+| `--flatten-bg` | RGBA を白背景に合成してから処理（透過 PNG の白リング除去に） | — |
+| `--remove-bg [threshold]` | 白背景を透過化（閾値 0–255、省略時 30） | — |
+| `--round-corners <r\|full>` | 角丸（px 数）または円形クロップ（`full`） | — |
+
+**背景除去・角丸の例（favicon 制作向け）:**
+
+```bash
+# 白背景を透過にして円形クロップ
+npx zenpix icon.jpg favicon.png --remove-bg --round-corners full
+
+# 角丸（40px）
+npx zenpix icon.jpg icon-rounded.png --remove-bg --round-corners 40
+
+# 透過 PNG の白リングも除去してから円形クロップ
+npx zenpix icon.png favicon.png --flatten-bg --remove-bg --round-corners full
+```
 
 **Python から呼ぶ例:**
 
@@ -134,6 +150,22 @@ const result = convert(readFileSync("input.png"), {
   encode: { format: "avif", quality: 60, speed: 10 },
 });
 if (result) writeFileSync("output.avif", result);
+
+// 背景除去・角丸（favicon 制作向け）
+import { removeBackground, flattenBackground, roundCorners } from "zenpix";
+
+// 白背景を透過化 → 円形クロップ → PNG
+const icon = decode(readFileSync("icon.jpg"));
+const noBg = removeBackground(icon, { threshold: 30 });
+const circle = roundCorners(noBg, { radius: "full" });
+writeFileSync("favicon.png", encodePng(circle));
+
+// 透過 PNG の白リングも除去してから角丸
+const icon2 = decode(readFileSync("icon.png"));
+const flat = flattenBackground(icon2);           // RGBA → RGB（白背景に合成）
+const noBg2 = removeBackground(flat, { threshold: 30 });
+const rounded = roundCorners(noBg2, { radius: 40 });
+writeFileSync("icon-rounded.png", encodePng(rounded));
 ```
 
 ## API
@@ -369,7 +401,7 @@ TypeScript ラッパー（`js/index.ts`）を使うとより簡潔に記述で�
 
 ### 3840×2160 PNG → 1920×1080 AVIF（手動計測・一点比較）
 
-macOS aarch64 (Apple M) / zenpix 0.7.0 / fixture: `bench_chara_chika.png`（イラスト系）  
+macOS aarch64 (Apple M) / zenpix 0.8.0 / fixture: `bench_chara_chika.png`（イラスト系）  
 pipeline: decode PNG → resize (Lanczos-3) → AVIF (quality=60)  
 計測: `/usr/bin/time` で 1 プロセスずつ起動、wall-clock は中央値（warm-up 3 / measure 7）
 
@@ -466,7 +498,7 @@ bash scripts/mem-peak.sh
 | Cloudflare Pages（WASM） | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm`（ネイティブ DLL ではなく WASM） |
 | Cloudflare Workers | ❌（CPU 制限により非対応）| — | — | — |
 
-**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在: 0.7.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
+**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在: 0.8.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
 
 **Windows on ARM64（WoA）**: npm の **公式同梱はありません**（`zenpix-win32-arm64` は出さない方針）。**x64 版の Node.js** で動かすか、**`ZENPIX_LIB`** で手元ビルドの `libpict.dll` を指すか、**`zig build lib-windows-arm64 -Davif=static`**（`zig-out/windows-aarch64/`）を参照してください。詳細は **`docs/windows-rollout-plan.md` §3.3**。
 
