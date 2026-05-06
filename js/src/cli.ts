@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { extname, basename, join, dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { decode, resize, encodeAvif, encodeWebP, encodePng } from "./index.js";
+import { decode, resize, encodeAvif, encodeWebP, encodePng, removeBackground, roundCorners, flattenBackground } from "./index.js";
 import type { ImageBuffer } from "./index.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -33,6 +33,13 @@ interface ResizeOpts {
   width?: number;
   height?: number;
   fit: "stretch" | "contain" | "cover";
+}
+
+interface CompositeOpts {
+  flattenBg: boolean;
+  removeBg: boolean;
+  removeBgThreshold: number;
+  roundCornersRadius?: number | "full";
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -168,17 +175,24 @@ Options:
       --fit <mode>         Resize fit: stretch | contain | cover  (default: contain)
       --compression <n>    PNG zlib compression 0–9  (default: 6)
       --out-dir <dir>      Output directory (required for batch input)
+      --flatten-bg         Composite RGBA onto white before --remove-bg (removes white rings in PNGs)
+      --remove-bg [n]      Remove white background via flood fill (threshold 0–255, default: 30)
+      --round-corners <n>  Round corners with radius in px, or "full" for circle
   -h, --help               Show this help
   -v, --version            Show version
 
 Examples:
-  zenpix photo.jpg                         # → photo.avif (AVIF, quality=60)
-  zenpix photo.jpg out.webp -q 92         # → WebP
-  zenpix photo.jpg --max-size 1920        # → photo.avif resized to ≤1920px
-  zenpix *.jpg --out-dir ./avif/          # batch → avif/
-  cat photo.jpg | zenpix - out.avif       # stdin
-  zenpix photo.jpg -                      # stdout (pipe to next command)
-  zenpix photo.jpg out.avif --threads 8  # multi-threaded AVIF encode
+  zenpix photo.jpg                           # → photo.avif (AVIF, quality=60)
+  zenpix photo.jpg out.webp -q 92           # → WebP
+  zenpix photo.jpg --max-size 1920          # → photo.avif resized to ≤1920px
+  zenpix *.jpg --out-dir ./avif/            # batch → avif/
+  cat photo.jpg | zenpix - out.avif         # stdin
+  zenpix photo.jpg -                        # stdout (pipe to next command)
+  zenpix photo.jpg out.avif --threads 8    # multi-threaded AVIF encode
+  zenpix icon.png out.png --remove-bg                              # remove white background → transparent PNG
+  zenpix icon.png out.png --flatten-bg --remove-bg                 # RGBA PNG の白リングも除去
+  zenpix icon.png out.png --flatten-bg --remove-bg --round-corners full  # 完全な円形アイコン
+  zenpix icon.png out.png --remove-bg --round-corners 40           # remove bg + round corners
 `);
 }
 
@@ -198,9 +212,12 @@ async function main(): Promise<void> {
       height:      { type: "string" },
       fit:         { type: "string" },
       compression: { type: "string" },
-      "out-dir":   { type: "string" },
-      help:        { type: "boolean", short: "h" },
-      version:     { type: "boolean", short: "v" },
+      "out-dir":       { type: "string" },
+      "flatten-bg":    { type: "boolean" },
+      "remove-bg":     { type: "string" },
+      "round-corners": { type: "string" },
+      help:            { type: "boolean", short: "h" },
+      version:         { type: "boolean", short: "v" },
     },
   });
 
@@ -263,6 +280,26 @@ async function main(): Promise<void> {
   const resizeOpts: ResizeOpts = { maxSize, width: widthOpt, height: heightOpt, fit: fitOpt };
   const hasResize = maxSize !== undefined || widthOpt !== undefined || heightOpt !== undefined;
 
+  const removeBgFlag = values["remove-bg"];
+  const removeBg = removeBgFlag !== undefined;
+  const removeBgThreshold = removeBgFlag !== undefined && removeBgFlag !== ""
+    ? parseInt(removeBgFlag, 10)
+    : 30;
+
+  const roundCornersFlag = values["round-corners"];
+  const roundCornersRadius: number | "full" | undefined = roundCornersFlag === undefined
+    ? undefined
+    : roundCornersFlag === "full"
+      ? "full"
+      : parseInt(roundCornersFlag, 10);
+
+  const compositeOpts: CompositeOpts = {
+    flattenBg: values["flatten-bg"] ?? false,
+    removeBg,
+    removeBgThreshold,
+    roundCornersRadius,
+  };
+
   // ── Process files ────────────────────────────────────────────────────────
 
   async function processOne(inputPath: string, dest: string): Promise<void> {
@@ -276,6 +313,19 @@ async function main(): Promise<void> {
 
     let img = decode(raw);
     if (hasResize) img = applyResize(img, resizeOpts);
+    if (compositeOpts.flattenBg) {
+      img = flattenBackground(img);
+    }
+    if (compositeOpts.removeBg) {
+      img = removeBackground(img, { threshold: compositeOpts.removeBgThreshold });
+    }
+    if (compositeOpts.roundCornersRadius !== undefined) {
+      // roundCorners requires RGBA; promote if still RGB
+      if (img.channels !== 4) {
+        img = removeBackground(img, { threshold: 0 }); // RGB→RGBA with no removal
+      }
+      img = roundCorners(img, { radius: compositeOpts.roundCornersRadius });
+    }
     const out = encodeImage(img, encodeOpts);
 
     writeOutput(dest, out);

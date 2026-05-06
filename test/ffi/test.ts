@@ -167,6 +167,29 @@ const lib = dlopen(LIB_PATH, {
     ],
     returns: FFIType.void,
   },
+  // pict_remove_background(pixels, width, height, channels, threshold, out_len) -> ?[*]u8
+  pict_remove_background: {
+    args: [
+      FFIType.ptr, // pixels: [*c]const u8
+      FFIType.u32, // width: u32
+      FFIType.u32, // height: u32
+      FFIType.u8,  // channels: u8
+      FFIType.u8,  // threshold: u8
+      FFIType.ptr, // out_len: ?*usize
+    ],
+    returns: FFIType.ptr,
+  },
+  // pict_round_corners(pixels, width, height, radius, out_len) -> ?[*]u8
+  pict_round_corners: {
+    args: [
+      FFIType.ptr, // pixels: [*c]const u8
+      FFIType.u32, // width: u32
+      FFIType.u32, // height: u32
+      FFIType.u32, // radius: u32
+      FFIType.ptr, // out_len: ?*usize
+    ],
+    returns: FFIType.ptr,
+  },
 });
 
 // ── Hardcoded 1×1 RGBA PNG (70 bytes, CRC 検証済み, zero external deps) ──────
@@ -747,11 +770,69 @@ try {
       }
     }
   }
+  // ── Case O: pict_remove_background — 全白 RGB → RGBA 全透過 ─────────────────
+  {
+    const W = 4, H = 4, CH = 3;
+    const src = new Uint8Array(W * H * CH).fill(255); // 全白 RGB
+
+    const outLen = new BigUint64Array(1);
+    const result = symbols.pict_remove_background(ptr(src), W, H, CH, 30, ptr(outLen));
+
+    if (result === null) {
+      fail("O: pict_remove_background", "returned null");
+    } else {
+      const expectedLen = BigInt(W * H * 4);
+      const lenOk = outLen[0] === expectedLen;
+      const pixels = new Uint8Array(toArrayBuffer(result, 0, W * H * 4));
+      // alpha channel of every pixel should be 0
+      let allTransparent = true;
+      for (let i = 3; i < pixels.length; i += 4) {
+        if (pixels[i] !== 0) { allTransparent = false; break; }
+      }
+      symbols.pict_free_buffer(result, outLen[0]);
+      if (!lenOk || !allTransparent) {
+        fail("O: pict_remove_background", `len=${outLen[0]} (expected ${expectedLen}), allTransparent=${allTransparent}`);
+      } else {
+        pass(`O: pict_remove_background — ${W}×${H} white RGB → RGBA fully transparent`);
+      }
+    }
+  }
+
+  // ── Case P: pict_round_corners — 角のアルファが 0 になる ────────────────────
+  {
+    const W = 10, H = 10;
+    const src = new Uint8Array(W * H * 4);
+    for (let i = 0; i < W * H; i++) {
+      src[i * 4 + 0] = 0;
+      src[i * 4 + 1] = 128;
+      src[i * 4 + 2] = 255;
+      src[i * 4 + 3] = 255; // fully opaque
+    }
+
+    const outLen = new BigUint64Array(1);
+    const result = symbols.pict_round_corners(ptr(src), W, H, 3, ptr(outLen));
+
+    if (result === null) {
+      fail("P: pict_round_corners", "returned null");
+    } else {
+      const pixels = new Uint8Array(toArrayBuffer(result, 0, W * H * 4));
+      // (0,0) corner pixel should be transparent
+      const cornerAlpha = pixels[(0 * W + 0) * 4 + 3];
+      // center pixel (5,5) should remain opaque
+      const centerAlpha = pixels[(5 * W + 5) * 4 + 3];
+      symbols.pict_free_buffer(result, outLen[0]);
+      if (cornerAlpha !== 0 || centerAlpha !== 255) {
+        fail("P: pict_round_corners", `corner alpha=${cornerAlpha} (want 0), center alpha=${centerAlpha} (want 255)`);
+      } else {
+        pass(`P: pict_round_corners — corner transparent, center opaque`);
+      }
+    }
+  }
 } finally {
   lib.close();
 }
 
-const TOTAL = 15;
+const TOTAL = 17;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);
