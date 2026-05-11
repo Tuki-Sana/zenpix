@@ -19,6 +19,9 @@ npm/*/libpict.dylib
 npm/*/libpict.so
 npm/*/libpict.dll
 
+# Claude セッション状態（一時ファイル、コミット不要）
+.claude_state.md
+
 # メンテ用のローカルメモ（リポジトリにコミットしない）
 docs/LOCAL.md
 docs/TECH_MEMO.md
