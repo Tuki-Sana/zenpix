@@ -1,5 +1,14 @@
 # CLAUDE.md
 
+## Session State Management (Token Saving)
+- トークンの消費を抑えるため、大きなタスクの完了時や、エラーが解決した区切りの良い段階で、現在の状態を `.claude_state.md` にシリアライズ（保存）してください。
+- 保存の際は、以下のフォーマットで `.claude_state.md` を作成または上書き更新してください：
+  1. 【Current State】: 現在のビルド/動作状況、解決したエラー。
+  2. 【Next Action】: 次に実装・デバッグすべき具体的なコードの場所やタスク。
+  3. 【Key Context】: Zig側のアロケータのライフサイクル、koffi FFIの型マッピング、SIMDアライメントなど、忘れてはいけない核心的な低レイヤの仕様。
+- `.claude_state.md` を更新したら、ユーザーに対して「ステートをシリアライズしました。今すぐ `/clear` を叩いてください」とだけ伝えて出力を終了してください。
+
+
 ## プロジェクト概要
 
 zenpix — Zig 製の高速画像処理ライブラリ。JPEG/PNG/WebP/AVIF/GIF decode、Lanczos-3 リサイズ、WebP/AVIF/PNG encode、CLI。Node.js / Bun / Deno 対応（koffi FFI）。
