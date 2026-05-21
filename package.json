@@ -32,7 +32,8 @@
     "bench:threads": "tsx bench/bench-threads.ts",
     "bench:quality": "tsx bench/bench-quality.ts",
     "bench:aggregate": "node scripts/bench-aggregate-multi-run.mjs",
-    "bench:manual-4k": "tsx bench/bench-manual-4k.ts"
+    "bench:manual-4k": "tsx bench/bench-manual-4k.ts",
+    "bench:concurrent": "bun bench/bench-concurrent.ts"
   },
   "keywords": [
     "avif",
