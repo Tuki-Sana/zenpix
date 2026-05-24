@@ -43,6 +43,10 @@ pub fn build(b: *std.Build) void {
         "libavif linking mode: system (default) or static",
     ) orelse .system;
 
+    // ── macOS check ───────────────────────────────────────────────────────────
+    // libheif は macOS のみ。Linux / Windows では addLibHeifSystem を呼ばない。
+    const is_native_macos = native_target.result.os.tag == .macos;
+
     // has_avif=true は CLI 専用 (pict_mod_cli)。他の artifact はすべて false。
     const no_avif_options = b.addOptions();
     no_avif_options.addOption(bool, "has_avif", false);
@@ -103,7 +107,7 @@ pub fn build(b: *std.Build) void {
     });
     pict_mod_cli.addOptions("build_options", build_options);
     pict_mod_cli.addOptions("avif_options", avif_options);
-    pict_mod_cli.addOptions("heif_options", heif_options);
+    pict_mod_cli.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
 
     // ── Native CLI (dev: Mac ARM) ─────────────────────────────────────────────
     const cli = b.addExecutable(.{
@@ -118,9 +122,13 @@ pub fn build(b: *std.Build) void {
         .system => addLibAvifSystem(b, cli),
         .static => addLibAvifStatic(b, cli),
     }
-    addLibHeifSystem(b, cli);
+    if (is_native_macos) addLibHeifSystem(b, cli);
     cli.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c", "src/c/heic_decode.c"},
+        .files = &.{ "src/c/avif_encode.c", "src/c/avif_decode.c" },
+        .flags = &.{"-std=c11"},
+    });
+    if (is_native_macos) cli.addCSourceFiles(.{
+        .files = &.{"src/c/heic_decode.c"},
         .flags = &.{"-std=c11"},
     });
     b.installArtifact(cli);
@@ -179,15 +187,19 @@ pub fn build(b: *std.Build) void {
     ffi_lib.root_module.addImport("pict", pict_mod);
     ffi_lib.root_module.addOptions("build_options", build_options);
     ffi_lib.root_module.addOptions("avif_options", avif_options); // has_avif=true
-    ffi_lib.root_module.addOptions("heif_options", heif_options); // has_heif=true
+    ffi_lib.root_module.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
     addCLibraries(b, ffi_lib);
     switch (avif_mode) {
         .system => addLibAvifSystem(b, ffi_lib),
         .static => addLibAvifStatic(b, ffi_lib),
     }
-    addLibHeifSystem(b, ffi_lib);
+    if (is_native_macos) addLibHeifSystem(b, ffi_lib);
     ffi_lib.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c", "src/c/heic_decode.c"},
+        .files = &.{ "src/c/avif_encode.c", "src/c/avif_decode.c" },
+        .flags = &.{"-std=c11"},
+    });
+    if (is_native_macos) ffi_lib.addCSourceFiles(.{
+        .files = &.{"src/c/heic_decode.c"},
         .flags = &.{"-std=c11"},
     });
 
@@ -277,12 +289,14 @@ pub fn build(b: *std.Build) void {
     addCLibraries(b, unit_tests);
     unit_tests.root_module.addOptions("build_options", build_options);
     unit_tests.root_module.addOptions("avif_options", no_avif_options);
-    unit_tests.root_module.addOptions("heif_options", heif_options); // has_heif=true (brew install libheif)
-    addLibHeifSystem(b, unit_tests);
-    unit_tests.addCSourceFiles(.{
-        .files = &.{"src/c/heic_decode.c"},
-        .flags = &.{"-std=c11"},
-    });
+    unit_tests.root_module.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
+    if (is_native_macos) {
+        addLibHeifSystem(b, unit_tests);
+        unit_tests.addCSourceFiles(.{
+            .files = &.{"src/c/heic_decode.c"},
+            .flags = &.{"-std=c11"},
+        });
+    }
 
     // CLI (main.zig) の parseArgs 等の純 Zig テストも同じステップで実行する。
     const cli_tests = b.addTest(.{
