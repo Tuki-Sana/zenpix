@@ -7,6 +7,16 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.9.0] - 2026-05-24
+
+### 追加
+
+- **HEIC/HEIF decode 対応**（macOS のみ）: `decode()` が HEIC / HEIF を受け付けるようになった。libheif（brew install libheif）経由。iOS/iPhone から共有された `.HEIC` ファイルを AVIF や WebP に変換するユースケースを想定。HEICエンコードは HEVC 特許問題のため対象外。Linux / Windows では `has_heif=false` のままバイナリをビルドする（API は変わらず、HEIC 入力は `UnsupportedFormat` エラーを返す）。
+
+### ABI 追加
+
+- `pict_heic_decode(data, len, out_len)` — macOS バイナリのみ公開
+
 ## [0.8.0] - 2026-05-06
 
 ### 追加
