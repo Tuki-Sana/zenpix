@@ -43,11 +43,24 @@ pub fn build(b: *std.Build) void {
         "libavif linking mode: system (default) or static",
     ) orelse .system;
 
+    // ── macOS check ───────────────────────────────────────────────────────────
+    // libheif は macOS のみ。Linux / Windows では addLibHeifSystem を呼ばない。
+    const is_native_macos = native_target.result.os.tag == .macos;
+
     // has_avif=true は CLI 専用 (pict_mod_cli)。他の artifact はすべて false。
     const no_avif_options = b.addOptions();
     no_avif_options.addOption(bool, "has_avif", false);
     const avif_options = b.addOptions();
     avif_options.addOption(bool, "has_avif", true);
+
+    // ── HEIF リンクモード ─────────────────────────────────────────────────────
+    // Phase 1: system のみ (macOS Homebrew; `brew install libheif`)
+    // has_heif=true: cli (Mac), ffi_lib (Mac native), unit_tests
+    // has_heif=false: linux/windows cross-compile、wasm
+    const no_heif_options = b.addOptions();
+    no_heif_options.addOption(bool, "has_heif", false);
+    const heif_options = b.addOptions();
+    heif_options.addOption(bool, "has_heif", true);
 
     // ── Cross-compile targets ─────────────────────────────────────────────────
     const linux_target = b.resolveTargetQuery(.{
@@ -85,14 +98,16 @@ pub fn build(b: *std.Build) void {
     });
     pict_mod.addOptions("build_options", build_options);
     pict_mod.addOptions("avif_options", no_avif_options);
+    pict_mod.addOptions("heif_options", no_heif_options);
 
-    // ── CLI 専用モジュール (has_avif=true) ────────────────────────────────────
+    // ── CLI 専用モジュール (has_avif=true, has_heif=true) ─────────────────────
     // cli のみがこれを使う。他の artifact は pict_mod (has_avif=false) を使い続ける。
     const pict_mod_cli = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
     });
     pict_mod_cli.addOptions("build_options", build_options);
     pict_mod_cli.addOptions("avif_options", avif_options);
+    pict_mod_cli.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
 
     // ── Native CLI (dev: Mac ARM) ─────────────────────────────────────────────
     const cli = b.addExecutable(.{
@@ -101,14 +116,19 @@ pub fn build(b: *std.Build) void {
         .target = native_target,
         .optimize = optimize,
     });
-    cli.root_module.addImport("pict", pict_mod_cli); // pict_mod_cli (has_avif=true)
+    cli.root_module.addImport("pict", pict_mod_cli); // pict_mod_cli (has_avif=true, has_heif=true)
     addCLibraries(b, cli);
     switch (avif_mode) {
         .system => addLibAvifSystem(b, cli),
         .static => addLibAvifStatic(b, cli),
     }
+    if (is_native_macos) addLibHeifSystem(b, cli);
     cli.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
+        .files = &.{ "src/c/avif_encode.c", "src/c/avif_decode.c" },
+        .flags = &.{"-std=c11"},
+    });
+    if (is_native_macos) cli.addCSourceFiles(.{
+        .files = &.{"src/c/heic_decode.c"},
         .flags = &.{"-std=c11"},
     });
     b.installArtifact(cli);
@@ -148,6 +168,7 @@ pub fn build(b: *std.Build) void {
     wasm_exe.stack_size = 64 * 1024;
     wasm_exe.root_module.addOptions("build_options", build_options);
     wasm_exe.root_module.addOptions("avif_options", no_avif_options);
+    wasm_exe.root_module.addOptions("heif_options", no_heif_options);
 
     const wasm_step = b.step("wasm", "Build WebAssembly / WASI module");
     wasm_step.dependOn(&b.addInstallArtifact(wasm_exe, .{
@@ -166,13 +187,19 @@ pub fn build(b: *std.Build) void {
     ffi_lib.root_module.addImport("pict", pict_mod);
     ffi_lib.root_module.addOptions("build_options", build_options);
     ffi_lib.root_module.addOptions("avif_options", avif_options); // has_avif=true
+    ffi_lib.root_module.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
     addCLibraries(b, ffi_lib);
     switch (avif_mode) {
         .system => addLibAvifSystem(b, ffi_lib),
         .static => addLibAvifStatic(b, ffi_lib),
     }
+    if (is_native_macos) addLibHeifSystem(b, ffi_lib);
     ffi_lib.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
+        .files = &.{ "src/c/avif_encode.c", "src/c/avif_decode.c" },
+        .flags = &.{"-std=c11"},
+    });
+    if (is_native_macos) ffi_lib.addCSourceFiles(.{
+        .files = &.{"src/c/heic_decode.c"},
         .flags = &.{"-std=c11"},
     });
 
@@ -191,6 +218,7 @@ pub fn build(b: *std.Build) void {
     ffi_lib_linux.root_module.addImport("pict", pict_mod);
     ffi_lib_linux.root_module.addOptions("build_options", build_options);
     ffi_lib_linux.root_module.addOptions("avif_options", no_avif_options);
+    ffi_lib_linux.root_module.addOptions("heif_options", no_heif_options);
     addCLibraries(b, ffi_lib_linux);
 
     const lib_linux_step = b.step("lib-linux", "Cross-compile shared library for Linux x86_64 VPS (.so) [AVIF disabled; for AVIF FFI run 'zig build lib' natively on VPS]");
@@ -210,6 +238,7 @@ pub fn build(b: *std.Build) void {
     ffi_lib_win.root_module.addImport("pict", pict_mod);
     ffi_lib_win.root_module.addOptions("build_options", build_options);
     ffi_lib_win.root_module.addOptions("avif_options", avif_options);
+    ffi_lib_win.root_module.addOptions("heif_options", no_heif_options);
     addCLibraries(b, ffi_lib_win);
     // Windows は pkg-config 前提の system モードが使えないため、常に事前ビルドの静的 .lib をリンクする。
     // CI / 手元とも `zig build lib-windows` は `-Davif=static` と CMake 済みの build/libavif-install を前提にする。
@@ -236,6 +265,7 @@ pub fn build(b: *std.Build) void {
     ffi_lib_win_arm.root_module.addImport("pict", pict_mod);
     ffi_lib_win_arm.root_module.addOptions("build_options", build_options);
     ffi_lib_win_arm.root_module.addOptions("avif_options", avif_options);
+    ffi_lib_win_arm.root_module.addOptions("heif_options", no_heif_options);
     addCLibraries(b, ffi_lib_win_arm);
     addLibAvifStatic(b, ffi_lib_win_arm);
     ffi_lib_win_arm.addCSourceFiles(.{
@@ -259,6 +289,14 @@ pub fn build(b: *std.Build) void {
     addCLibraries(b, unit_tests);
     unit_tests.root_module.addOptions("build_options", build_options);
     unit_tests.root_module.addOptions("avif_options", no_avif_options);
+    unit_tests.root_module.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
+    if (is_native_macos) {
+        addLibHeifSystem(b, unit_tests);
+        unit_tests.addCSourceFiles(.{
+            .files = &.{"src/c/heic_decode.c"},
+            .flags = &.{"-std=c11"},
+        });
+    }
 
     // CLI (main.zig) の parseArgs 等の純 Zig テストも同じステップで実行する。
     const cli_tests = b.addTest(.{
@@ -269,6 +307,7 @@ pub fn build(b: *std.Build) void {
     cli_tests.root_module.addImport("pict", pict_mod);
     addCLibraries(b, cli_tests);
     cli_tests.root_module.addOptions("avif_options", no_avif_options);
+    cli_tests.root_module.addOptions("heif_options", no_heif_options);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(unit_tests).step);
@@ -882,6 +921,45 @@ fn addLibAvifStatic(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         artifact.linkSystemLibrary("pthread");
         artifact.linkSystemLibrary("m");
     }
+    artifact.linkLibC();
+}
+
+// ── libheif system library (CLI + Mac native ffi_lib, Phase 1: system only) ──
+// macOS: pkg-config --cflags-only-I/--libs-only-L libheif。失敗時は Homebrew fallback。
+// Linux: 未対応 (この関数は mac-targeted artifact にのみ呼ばれる)。
+fn addLibHeifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
+    const pkg_cflags = b.runAllowFail(
+        &.{ "pkg-config", "--cflags-only-I", "libheif" },
+        @constCast(&@as(u8, 0)),
+        .Ignore,
+    ) catch null;
+    const pkg_libs = b.runAllowFail(
+        &.{ "pkg-config", "--libs-only-L", "libheif" },
+        @constCast(&@as(u8, 0)),
+        .Ignore,
+    ) catch null;
+
+    if (pkg_cflags) |cflags| {
+        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, cflags, " \n\r"), ' ');
+        while (it.next()) |token| {
+            if (std.mem.startsWith(u8, token, "-I"))
+                artifact.addSystemIncludePath(.{ .cwd_relative = token[2..] });
+        }
+    } else {
+        artifact.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/libheif/include" });
+    }
+
+    if (pkg_libs) |libs| {
+        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, libs, " \n\r"), ' ');
+        while (it.next()) |token| {
+            if (std.mem.startsWith(u8, token, "-L"))
+                artifact.addLibraryPath(.{ .cwd_relative = token[2..] });
+        }
+    } else {
+        artifact.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/libheif/lib" });
+    }
+
+    artifact.linkSystemLibrary("heif");
     artifact.linkLibC();
 }
 
