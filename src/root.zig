@@ -114,6 +114,7 @@ export fn pict_decode_v2(
         .png     => decode.pngDecoder(),
         .webp    => decode.webpDecoder(),
         .avif    => decode.avifDecoder(),
+        .heic    => decode.heicDecoder(),
         .gif     => decode.gifDecoder(),
         .unknown => return null,
     };
@@ -163,6 +164,7 @@ export fn pict_decode_v3(
         .png     => decode.pngDecoder(),
         .webp    => decode.webpDecoder(),
         .avif    => decode.avifDecoder(),
+        .heic    => decode.heicDecoder(),
         .gif     => decode.gifDecoder(),
         .unknown => return null,
     };

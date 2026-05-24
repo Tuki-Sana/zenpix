@@ -113,9 +113,10 @@ jobs:
         with:
           version: 0.13.0
 
-      - name: Install build tools (cmake)
+      - name: Install build tools (cmake / libheif)
         # arm64 では nasm 不要（libaom は NASM なしでビルド可能）
-        run: brew install cmake ninja
+        # libheif: HEIC decode に必要（system dynamic link; Phase 1）
+        run: brew install cmake ninja libheif
 
       - name: Build libavif (static) — libaom via FetchContent
         run: |
@@ -135,10 +136,11 @@ jobs:
       - name: Build libpict.dylib (static avif)
         run: zig build lib -Doptimize=ReleaseFast -Davif=static
 
-      - name: Verify libavif/libaom not dynamically linked
+      - name: Verify libavif/libaom not dynamically linked; libheif is linked
         run: |
           echo "=== otool -L output ===" && otool -L zig-out/lib/libpict.dylib
           ! otool -L zig-out/lib/libpict.dylib | grep -E "libavif|libaom"
+          otool -L zig-out/lib/libpict.dylib | grep libheif
 
       - name: Install Node.js deps
         run: npm install
@@ -201,9 +203,10 @@ jobs:
         with:
           version: 0.13.0
 
-      - name: Install build tools (cmake / ninja / nasm)
+      - name: Install build tools (cmake / ninja / nasm / libheif)
         # x86_64: libaom のアセンブリに NASM が必要（Apple Silicon ジョブとは別）
-        run: brew install cmake ninja nasm
+        # libheif: HEIC decode に必要（system dynamic link; Phase 1）
+        run: brew install cmake ninja nasm libheif
 
       - name: Build libavif (static) — libaom via FetchContent
         run: |
@@ -223,10 +226,11 @@ jobs:
       - name: Build libpict.dylib (static avif)
         run: zig build lib -Doptimize=ReleaseFast -Davif=static
 
-      - name: Verify libavif/libaom not dynamically linked
+      - name: Verify libavif/libaom not dynamically linked; libheif is linked
         run: |
           echo "=== otool -L output ===" && otool -L zig-out/lib/libpict.dylib
           ! otool -L zig-out/lib/libpict.dylib | grep -E "libavif|libaom"
+          otool -L zig-out/lib/libpict.dylib | grep libheif
 
       - name: Install Node.js deps
         run: npm install

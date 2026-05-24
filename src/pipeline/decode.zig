@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const has_avif = @import("avif_options").has_avif;
+const has_heif = @import("heif_options").has_heif;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 型定義
@@ -110,7 +111,7 @@ pub const Decoder = struct {
 // フォーマット判定ユーティリティ
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub const Format = enum { jpeg, png, webp, avif, gif, unknown };
+pub const Format = enum { jpeg, png, webp, avif, heic, gif, unknown };
 
 /// magic bytes によるフォーマット検出 (拡張子に依存しない)
 pub fn detectFormat(data: []const u8) Format {
@@ -133,13 +134,14 @@ pub fn detectFormat(data: []const u8) Format {
     {
         return .webp;
     }
-    // AVIF: ISOBMFF ftyp box with avif/avis major brand
-    // Structure: [4-byte size][4-byte "ftyp"][4-byte brand]...
+    // AVIF / HEIC: ISOBMFF ftyp box — [4-byte size][4-byte "ftyp"][4-byte brand]...
     // size は big-endian u32; 最低 12 bytes 必要
     if (data.len >= 12 and data[4] == 'f' and data[5] == 't' and data[6] == 'y' and data[7] == 'p') {
         const b0 = data[8]; const b1 = data[9]; const b2 = data[10]; const b3 = data[11];
+        // HEIC: heic (iPhone 標準), heix (extended)
+        if (b0 == 'h' and b1 == 'e' and b2 == 'i' and (b3 == 'c' or b3 == 'x')) return .heic;
+        // AVIF: avif, avis, mif1
         if ((b0 == 'a' and b1 == 'v' and b2 == 'i' and (b3 == 'f' or b3 == 's')) or
-            (b0 == 'a' and b1 == 'v' and b2 == 'i' and b3 == 'f') or
             (b0 == 'm' and b1 == 'i' and b2 == 'f' and b3 == '1'))
         {
             return .avif;
@@ -608,6 +610,77 @@ pub fn avifDecoder() Decoder {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HEIC decode C bridge (src/c/heic_decode.c) — has_heif=true のみ利用可能
+// ─────────────────────────────────────────────────────────────────────────────
+
+const heif_dec_c = if (has_heif) struct {
+    extern fn pict_heic_decode(
+        src: [*]const u8,
+        src_len: usize,
+        out_data: *[*]u8,
+        out_w: *u32,
+        out_h: *u32,
+        out_ch: *u32,
+    ) c_int;
+    extern fn pict_heic_decode_free(data: [*]u8) void;
+} else struct {};
+
+/// libheif を使って HEIC/HEIF バイト列をデコードする Decoder 実装。
+pub const HeicDecoder = struct {
+    pub const vtable = Decoder.VTable{
+        .decode = decodeImpl,
+        .deinit = deinitImpl,
+    };
+
+    fn decodeImpl(
+        ptr: *anyopaque,
+        data: []const u8,
+        allocator: std.mem.Allocator,
+    ) DecodeError!ImageBuffer {
+        _ = ptr;
+        if (comptime !has_heif) return DecodeError.UnsupportedFormat;
+
+        var out_data: [*]u8 = undefined;
+        var out_w: u32 = 0;
+        var out_h: u32 = 0;
+        var out_ch: u32 = 0;
+
+        const result = heif_dec_c.pict_heic_decode(
+            data.ptr, data.len,
+            &out_data, &out_w, &out_h, &out_ch,
+        );
+        if (result != 0) return DecodeError.CorruptData;
+
+        const w: usize = out_w;
+        const h: usize = out_h;
+        const ch: usize = out_ch;
+        const total = w * h * ch;
+        defer heif_dec_c.pict_heic_decode_free(out_data);
+
+        const buf = try allocator.alloc(u8, total);
+        errdefer allocator.free(buf);
+        @memcpy(buf, out_data[0..total]);
+
+        const fmt: PixelFormat = if (ch == 4) .rgba8 else .rgb8;
+        return ImageBuffer{
+            .width = out_w, .height = out_h,
+            .channels = @intCast(out_ch),
+            .format = fmt,
+            .data = buf,
+            .icc = null,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinitImpl(ptr: *anyopaque) void { _ = ptr; }
+};
+
+pub fn heicDecoder() Decoder {
+    const Anchor = struct { var byte: u8 = 0; };
+    return .{ .ptr = &Anchor.byte, .vtable = &HeicDecoder.vtable };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GIF decode C bridge (src/c/gif_decode.c / stb_image)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -711,6 +784,22 @@ test "detectFormat: GIF87a magic" {
 test "detectFormat: GIF89a magic" {
     const hdr = [_]u8{ 'G', 'I', 'F', '8', '9', 'a', 0, 0 };
     try std.testing.expectEqual(Format.gif, detectFormat(&hdr));
+}
+
+test "detectFormat: HEIC ftyp box (heic brand)" {
+    var hdr = [_]u8{0} ** 16;
+    hdr[0] = 0; hdr[1] = 0; hdr[2] = 0; hdr[3] = 32;
+    hdr[4] = 'f'; hdr[5] = 't'; hdr[6] = 'y'; hdr[7] = 'p';
+    hdr[8] = 'h'; hdr[9] = 'e'; hdr[10] = 'i'; hdr[11] = 'c';
+    try std.testing.expectEqual(Format.heic, detectFormat(&hdr));
+}
+
+test "detectFormat: HEIC ftyp box (heix brand)" {
+    var hdr = [_]u8{0} ** 16;
+    hdr[0] = 0; hdr[1] = 0; hdr[2] = 0; hdr[3] = 32;
+    hdr[4] = 'f'; hdr[5] = 't'; hdr[6] = 'y'; hdr[7] = 'p';
+    hdr[8] = 'h'; hdr[9] = 'e'; hdr[10] = 'i'; hdr[11] = 'x';
+    try std.testing.expectEqual(Format.heic, detectFormat(&hdr));
 }
 
 test "detectFormat: AVIF ftyp box" {
