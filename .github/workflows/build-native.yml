@@ -20,7 +20,7 @@ jobs:
           submodules: recursive
 
       - name: Install Zig 0.16.0
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
 
@@ -109,7 +109,7 @@ jobs:
           submodules: recursive
 
       - name: Install Zig 0.16.0
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
 
@@ -199,7 +199,7 @@ jobs:
           submodules: recursive
 
       - name: Install Zig 0.16.0
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
 
@@ -296,7 +296,7 @@ jobs:
           arch: x64
 
       - name: Install Zig 0.16.0
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
 
