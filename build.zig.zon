@@ -1,7 +1,8 @@
 .{
-    .name = "pict-zig-engine",
+    .name = .zenpix,
+    .fingerprint = 0x2f40b6b912c0d41d,
     .version = "0.1.0",
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",

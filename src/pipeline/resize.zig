@@ -370,15 +370,21 @@ fn vPassFullParallel(
         };
     }
 
-    var pool: std.Thread.Pool = undefined;
-    pool.init(.{ .allocator = alloc, .n_jobs = n_threads }) catch return ResizeError.OutOfMemory;
-    defer pool.deinit();
+    // Spawn all but the last chunk in background threads; run the last in the
+    // main thread. If any spawn fails, fall back to running that chunk inline.
+    const thread_handles = alloc.alloc(std.Thread, n_chunks) catch return ResizeError.OutOfMemory;
+    defer alloc.free(thread_handles);
+    var spawned: usize = 0;
 
-    var wg = std.Thread.WaitGroup{};
-    for (chunks) |*chunk| {
-        pool.spawnWg(&wg, VPassChunk.run, .{chunk});
+    for (chunks[0 .. n_chunks - 1]) |*chunk| {
+        thread_handles[spawned] = std.Thread.spawn(.{}, VPassChunk.run, .{chunk}) catch {
+            VPassChunk.run(chunk);
+            continue;
+        };
+        spawned += 1;
     }
-    pool.waitAndWork(&wg);
+    VPassChunk.run(&chunks[n_chunks - 1]);
+    for (thread_handles[0..spawned]) |t| t.join();
 }
 
 /// V-pass ディスパッチャ: comptime simd_enabled で SIMD / スカラーを切り替える。

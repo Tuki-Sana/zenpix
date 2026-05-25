@@ -11,8 +11,8 @@ const builtin = @import("builtin");
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// 開発・テスト用: メモリリーク検出付き GPA
-pub fn makeDebugAllocator() std.heap.GeneralPurposeAllocator(.{}) {
-    return std.heap.GeneralPurposeAllocator(.{}){};
+pub fn makeDebugAllocator() std.heap.DebugAllocator(.{}) {
+    return std.heap.DebugAllocator(.{}).init;
 }
 
 /// リリース用: page_allocator 直接使用 (OS に返却)

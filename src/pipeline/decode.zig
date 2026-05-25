@@ -1041,7 +1041,7 @@ test "PngDecoder: corrupt data returns CorruptData" {
 // libavif テストデータ: iCCP 付き PNG → ImageBuffer.icc が非 null（パススルー抽出）
 test "PngDecoder: iCCP profile extracted" {
     const path = "vendor/libavif/tests/data/paris_icc_exif_xmp.png";
-    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, path, 4 * 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(4 * 1024 * 1024));
     defer std.testing.allocator.free(bytes);
 
     var dec = pngDecoder();

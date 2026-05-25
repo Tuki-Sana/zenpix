@@ -112,22 +112,24 @@ pub fn build(b: *std.Build) void {
     // ── Native CLI (dev: Mac ARM) ─────────────────────────────────────────────
     const cli = b.addExecutable(.{
         .name = "pict",
-        .root_source_file = b.path("src/main.zig"),
-        .target = native_target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = native_target,
+            .optimize = optimize,
+        }),
     });
     cli.root_module.addImport("pict", pict_mod_cli); // pict_mod_cli (has_avif=true, has_heif=true)
     addCLibraries(b, cli);
     switch (avif_mode) {
-        .system => addLibAvifSystem(b, cli),
+        .system => addLibAvifSystem(cli),
         .static => addLibAvifStatic(b, cli),
     }
     if (is_native_macos) addLibHeifSystem(b, cli);
-    cli.addCSourceFiles(.{
+    cli.root_module.addCSourceFiles(.{
         .files = &.{ "src/c/avif_encode.c", "src/c/avif_decode.c" },
         .flags = &.{"-std=c11"},
     });
-    if (is_native_macos) cli.addCSourceFiles(.{
+    if (is_native_macos) cli.root_module.addCSourceFiles(.{
         .files = &.{"src/c/heic_decode.c"},
         .flags = &.{"-std=c11"},
     });
@@ -142,9 +144,11 @@ pub fn build(b: *std.Build) void {
     // ── Linux x86_64 cross-compile ────────────────────────────────────────────
     const cli_linux = b.addExecutable(.{
         .name = "pict",
-        .root_source_file = b.path("src/main.zig"),
-        .target = linux_target,
-        .optimize = .ReleaseFast,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = linux_target,
+            .optimize = .ReleaseFast,
+        }),
     });
     cli_linux.root_module.addImport("pict", pict_mod);
     addCLibraries(b, cli_linux);
@@ -160,9 +164,11 @@ pub fn build(b: *std.Build) void {
     // ブラウザ向け配布は npm の `zenpix-wasm`（Emscripten で libavif 静的リンクの AVIF エンコード専用）を正とする。
     const wasm_exe = b.addExecutable(.{
         .name = "pict",
-        .root_source_file = b.path("src/root.zig"),
-        .target = wasm_target,
-        .optimize = .ReleaseSmall,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = wasm_target,
+            .optimize = .ReleaseSmall,
+        }),
     });
     wasm_exe.rdynamic = true;
     wasm_exe.stack_size = 64 * 1024;
@@ -178,11 +184,14 @@ pub fn build(b: *std.Build) void {
     // ── Shared library (FFI: Bun / Node.js) ───────────────────────────────────
     // Phase 7B: Mac native lib は has_avif=true。pict_encode_avif を公開する。
     // Linux cross-compile (ffi_lib_linux) は Phase 7C まで has_avif=false のまま。
-    const ffi_lib = b.addSharedLibrary(.{
+    const ffi_lib = b.addLibrary(.{
         .name = "pict",
-        .root_source_file = b.path("src/root.zig"),
-        .target = native_target,
-        .optimize = .ReleaseFast,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = native_target,
+            .optimize = .ReleaseFast,
+        }),
     });
     ffi_lib.root_module.addImport("pict", pict_mod);
     ffi_lib.root_module.addOptions("build_options", build_options);
@@ -190,15 +199,15 @@ pub fn build(b: *std.Build) void {
     ffi_lib.root_module.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
     addCLibraries(b, ffi_lib);
     switch (avif_mode) {
-        .system => addLibAvifSystem(b, ffi_lib),
+        .system => addLibAvifSystem(ffi_lib),
         .static => addLibAvifStatic(b, ffi_lib),
     }
     if (is_native_macos) addLibHeifSystem(b, ffi_lib);
-    ffi_lib.addCSourceFiles(.{
+    ffi_lib.root_module.addCSourceFiles(.{
         .files = &.{ "src/c/avif_encode.c", "src/c/avif_decode.c" },
         .flags = &.{"-std=c11"},
     });
-    if (is_native_macos) ffi_lib.addCSourceFiles(.{
+    if (is_native_macos) ffi_lib.root_module.addCSourceFiles(.{
         .files = &.{"src/c/heic_decode.c"},
         .flags = &.{"-std=c11"},
     });
@@ -209,11 +218,14 @@ pub fn build(b: *std.Build) void {
     }).step);
 
     // ── Shared library Linux x86_64 cross-compile (FFI: VPS) ─────────────────
-    const ffi_lib_linux = b.addSharedLibrary(.{
+    const ffi_lib_linux = b.addLibrary(.{
         .name = "pict",
-        .root_source_file = b.path("src/root.zig"),
-        .target = linux_target,
-        .optimize = .ReleaseFast,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = linux_target,
+            .optimize = .ReleaseFast,
+        }),
     });
     ffi_lib_linux.root_module.addImport("pict", pict_mod);
     ffi_lib_linux.root_module.addOptions("build_options", build_options);
@@ -229,11 +241,14 @@ pub fn build(b: *std.Build) void {
     // ── Shared library Windows x86_64 MSVC (FFI: CI windows-latest) ───────────
     // 事前ビルド: build/libavif で CMake (Ninja) + ninja install（build-native.yml と同型）。
     // 静的 .lib をリンク。pthread / m は Unix のみ。
-    const ffi_lib_win = b.addSharedLibrary(.{
+    const ffi_lib_win = b.addLibrary(.{
         .name = "pict",
-        .root_source_file = b.path("src/root.zig"),
-        .target = windows_x64_msvc,
-        .optimize = .ReleaseFast,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = windows_x64_msvc,
+            .optimize = .ReleaseFast,
+        }),
     });
     ffi_lib_win.root_module.addImport("pict", pict_mod);
     ffi_lib_win.root_module.addOptions("build_options", build_options);
@@ -243,7 +258,7 @@ pub fn build(b: *std.Build) void {
     // Windows は pkg-config 前提の system モードが使えないため、常に事前ビルドの静的 .lib をリンクする。
     // CI / 手元とも `zig build lib-windows` は `-Davif=static` と CMake 済みの build/libavif-install を前提にする。
     addLibAvifStatic(b, ffi_lib_win);
-    ffi_lib_win.addCSourceFiles(.{
+    ffi_lib_win.root_module.addCSourceFiles(.{
         .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
         .flags = &.{"-std=c11"},
     });
@@ -256,11 +271,14 @@ pub fn build(b: *std.Build) void {
     }).step);
 
     // ── Shared library Windows aarch64 MSVC（手元ビルド用。npm / CI 未同梱）────
-    const ffi_lib_win_arm = b.addSharedLibrary(.{
+    const ffi_lib_win_arm = b.addLibrary(.{
         .name = "pict",
-        .root_source_file = b.path("src/root.zig"),
-        .target = windows_aarch64_msvc,
-        .optimize = .ReleaseFast,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = windows_aarch64_msvc,
+            .optimize = .ReleaseFast,
+        }),
     });
     ffi_lib_win_arm.root_module.addImport("pict", pict_mod);
     ffi_lib_win_arm.root_module.addOptions("build_options", build_options);
@@ -268,7 +286,7 @@ pub fn build(b: *std.Build) void {
     ffi_lib_win_arm.root_module.addOptions("heif_options", no_heif_options);
     addCLibraries(b, ffi_lib_win_arm);
     addLibAvifStatic(b, ffi_lib_win_arm);
-    ffi_lib_win_arm.addCSourceFiles(.{
+    ffi_lib_win_arm.root_module.addCSourceFiles(.{
         .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
         .flags = &.{"-std=c11"},
     });
@@ -282,9 +300,11 @@ pub fn build(b: *std.Build) void {
     // ── Unit tests ────────────────────────────────────────────────────────────
     // C ライブラリ (libjpeg-turbo 等) も同時にリンクして JPEG デコードパスを検証する。
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = native_target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = native_target,
+            .optimize = optimize,
+        }),
     });
     addCLibraries(b, unit_tests);
     unit_tests.root_module.addOptions("build_options", build_options);
@@ -292,7 +312,7 @@ pub fn build(b: *std.Build) void {
     unit_tests.root_module.addOptions("heif_options", if (is_native_macos) heif_options else no_heif_options);
     if (is_native_macos) {
         addLibHeifSystem(b, unit_tests);
-        unit_tests.addCSourceFiles(.{
+        unit_tests.root_module.addCSourceFiles(.{
             .files = &.{"src/c/heic_decode.c"},
             .flags = &.{"-std=c11"},
         });
@@ -300,9 +320,11 @@ pub fn build(b: *std.Build) void {
 
     // CLI (main.zig) の parseArgs 等の純 Zig テストも同じステップで実行する。
     const cli_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = native_target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = native_target,
+            .optimize = optimize,
+        }),
     });
     cli_tests.root_module.addImport("pict", pict_mod);
     addCLibraries(b, cli_tests);
@@ -316,9 +338,11 @@ pub fn build(b: *std.Build) void {
     // ── Benchmarks ────────────────────────────────────────────────────────────
     const bench_exe = b.addExecutable(.{
         .name = "bench",
-        .root_source_file = b.path("test/bench/main.zig"),
-        .target = native_target,
-        .optimize = .ReleaseFast,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/bench/main.zig"),
+            .target = native_target,
+            .optimize = .ReleaseFast,
+        }),
     });
     bench_exe.root_module.addImport("pict", pict_mod);
 
@@ -338,7 +362,7 @@ fn addCLibraries(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     addLibjpegTurbo(b, artifact);
     addLibwebp(b, artifact);
     // pict-zig-engine C bridges (JPEG/PNG decode, WebP encode, GIF decode)
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             "src/c/jpeg_decode.c",
             "src/c/png_decode.c",
@@ -348,14 +372,14 @@ fn addCLibraries(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         },
         .flags = &.{"-std=c11"},
     });
-    artifact.linkLibC();
+    artifact.root_module.link_libc = true;
 }
 
 // ── zlib 1.3.1 ───────────────────────────────────────────────────────────────
 // gz*.c はファイルI/O用で libpng には不要。POSIX 関数依存を避けるため除外。
 fn addZlib(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    artifact.addIncludePath(b.path("vendor/zlib"));
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addIncludePath(b.path("vendor/zlib"));
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             "vendor/zlib/adler32.c",
             "vendor/zlib/compress.c",
@@ -375,16 +399,16 @@ fn addZlib(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 
 // ── libpng 1.6.43 ─────────────────────────────────────────────────────────────
 fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    artifact.addIncludePath(b.path("vendor/libpng"));
-    artifact.addIncludePath(b.path("vendor/libpng/scripts"));
-    artifact.addIncludePath(b.path("vendor/zlib"));
+    artifact.root_module.addIncludePath(b.path("vendor/libpng"));
+    artifact.root_module.addIncludePath(b.path("vendor/libpng/scripts"));
+    artifact.root_module.addIncludePath(b.path("vendor/zlib"));
 
     const copy_pnglibconf = b.addWriteFiles();
     _ = copy_pnglibconf.addCopyFile(
         b.path("vendor/libpng/scripts/pnglibconf.h.prebuilt"),
         "pnglibconf.h",
     );
-    artifact.addIncludePath(copy_pnglibconf.getDirectory());
+    artifact.root_module.addIncludePath(copy_pnglibconf.getDirectory());
     artifact.step.dependOn(&copy_pnglibconf.step);
 
     const arch = artifact.rootModuleTarget().cpu.arch;
@@ -398,7 +422,7 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         .x86_64 => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=1" },
         else => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=0" },
     };
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             "vendor/libpng/png.c",
             "vendor/libpng/pngerror.c",
@@ -421,7 +445,7 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 
     // SIMD 実装ファイル (ターゲット別)
     switch (arch) {
-        .aarch64 => artifact.addCSourceFiles(.{
+        .aarch64 => artifact.root_module.addCSourceFiles(.{
             .files = &.{
                 "vendor/libpng/arm/arm_init.c",
                 "vendor/libpng/arm/filter_neon_intrinsics.c",
@@ -429,7 +453,7 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
             },
             .flags = &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=2" },
         }),
-        .x86_64 => artifact.addCSourceFiles(.{
+        .x86_64 => artifact.root_module.addCSourceFiles(.{
             .files = &.{
                 "vendor/libpng/intel/intel_init.c",
                 "vendor/libpng/intel/filter_sse2_intrinsics.c",
@@ -488,14 +512,14 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         .D_ARITH_CODING_SUPPORTED = @as(i64, 1),
         .WITH_SIMD = with_simd,
     });
-    artifact.addConfigHeader(jconfig_h);
-    artifact.addConfigHeader(jconfigint_h);
-    artifact.addConfigHeader(jversion_h);
-    artifact.addIncludePath(b.path("vendor/libjpeg-turbo"));
+    artifact.root_module.addConfigHeader(jconfig_h);
+    artifact.root_module.addConfigHeader(jconfigint_h);
+    artifact.root_module.addConfigHeader(jversion_h);
+    artifact.root_module.addIncludePath(b.path("vendor/libjpeg-turbo"));
 
     // ── 8-bit コア (BITS_IN_JSAMPLE=8 デフォルト) ────────────────────────
     // Phase 2: non-SIMD コアのみ。rd*/wr* (cjpeg/djpeg ツール用) は除外。
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             "vendor/libjpeg-turbo/jaricom.c",
             "vendor/libjpeg-turbo/jcapimin.c",
@@ -580,7 +604,7 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     // j12init_* を呼び出す。jsamplecomp.h が BITS_IN_JSAMPLE=12 のとき
     // _jinit_* → j12init_* にリネームする仕組み。
     // CMakeLists.txt の JPEG12_SOURCES に相当。
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             "vendor/libjpeg-turbo/jcapistd.c",
             "vendor/libjpeg-turbo/jccoefct.c",
@@ -625,7 +649,7 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 
     // ── 16-bit 精度 (j16init_* シンボル生成) ────────────────────────────
     // CMakeLists.txt の JPEG16_SOURCES に相当 (JPEG12_SOURCES のサブセット)。
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             "vendor/libjpeg-turbo/jcapistd.c",
             // jccolext.c はフラグメント → 除外
@@ -689,13 +713,13 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
             \\#error "Unknown compiler"
             \\#endif
         );
-        artifact.addIncludePath(neon_compat.getDirectory());
+        artifact.root_module.addIncludePath(neon_compat.getDirectory());
         artifact.step.dependOn(&neon_compat.step);
 
         const neon_flags = &.{ "-std=c11", "-D_DEFAULT_SOURCE", "-DNEON_INTRINSICS" };
 
         // 共有 ARM NEON C ファイル (aarch32/aarch64 両対応; __aarch64__ で内部分岐)
-        artifact.addCSourceFiles(.{
+        artifact.root_module.addCSourceFiles(.{
             .files = &.{
                 "vendor/libjpeg-turbo/simd/arm/jccolor-neon.c",
                 "vendor/libjpeg-turbo/simd/arm/jcgray-neon.c",
@@ -725,11 +749,11 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 // そのため SIMD 実装ファイルをターゲットアーキテクチャに応じてリンクする必要がある。
 // sharpyuv/ はサブライブラリとして picture_csp_enc.c から SharpYuvInit() 経由で使用。
 fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    artifact.addIncludePath(b.path("vendor/libwebp"));
-    artifact.addIncludePath(b.path("vendor/libwebp/sharpyuv"));
+    artifact.root_module.addIncludePath(b.path("vendor/libwebp"));
+    artifact.root_module.addIncludePath(b.path("vendor/libwebp/sharpyuv"));
 
     // ── enc + dsp (C スカラー baseline) + utils ───────────────────────────
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             // enc
             "vendor/libwebp/src/enc/alpha_enc.c",
@@ -808,7 +832,7 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 
     // ── sharpyuv (C スカラー + dispatch core) ────────────────────────────
     // picture_csp_enc.c → SharpYuvInit() → sharpyuv.c で定義
-    artifact.addCSourceFiles(.{
+    artifact.root_module.addCSourceFiles(.{
         .files = &.{
             "vendor/libwebp/sharpyuv/sharpyuv.c",
             "vendor/libwebp/sharpyuv/sharpyuv_cpu.c",
@@ -825,7 +849,7 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     const arch = artifact.rootModuleTarget().cpu.arch;
     if (arch == .aarch64) {
         // ARM64: NEON は常に利用可能 (clang が __aarch64__ を定義 → WEBP_HAVE_NEON)
-        artifact.addCSourceFiles(.{
+        artifact.root_module.addCSourceFiles(.{
             .files = &.{
                 "vendor/libwebp/src/dsp/alpha_processing_neon.c",
                 "vendor/libwebp/src/dsp/cost_neon.c",
@@ -848,7 +872,7 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
             &.{ "-std=c11", "-msse2", "-mssse3", "-msse4.1" }
         else
             &.{ "-std=c11", "-msse2", "-mssse3", "-msse4.1" };
-        artifact.addCSourceFiles(.{
+        artifact.root_module.addCSourceFiles(.{
             .files = &.{
                 "vendor/libwebp/src/dsp/alpha_processing_sse2.c",
                 "vendor/libwebp/src/dsp/alpha_processing_sse41.c",
@@ -903,133 +927,42 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 //   build/libavif/_deps/libaom-build/libaom.a  (FetchContent による libaom ビルド)
 fn addLibAvifStatic(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     const target = artifact.rootModuleTarget();
-    artifact.addIncludePath(b.path("build/libavif-install/include"));
+    artifact.root_module.addIncludePath(b.path("build/libavif-install/include"));
     if (target.os.tag == .windows) {
         // MSVC + Ninja: libavif の静的ターゲットは OUTPUT_NAME `avif` → **avif.lib**（libavif.lib ではない）。
         // libaom は FetchContent 先のビルドツリーに aom.lib。
-        artifact.addObjectFile(b.path("build/libavif-install/lib/avif.lib"));
-        artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/aom.lib"));
+        artifact.root_module.addObjectFile(b.path("build/libavif-install/lib/avif.lib"));
+        artifact.root_module.addObjectFile(b.path("build/libavif/_deps/libaom-build/aom.lib"));
         // linkLibCpp() は Zig 同梱の libcxxabi を引き、ilammy/msvc-dev-cmd の MSVC ヘッダと衝突する。
         // CMake+MSVC でビルドした aom.lib は MSVC の C++ ランタイム（/MD 系）に合わせる。
-        artifact.linkSystemLibrary("msvcprt");
+        artifact.root_module.linkSystemLibrary("msvcprt", .{});
         // libaom / 周辺が参照し得る Windows システムライブラリ
-        artifact.linkSystemLibrary("ws2_32");
-        artifact.linkSystemLibrary("bcrypt");
+        artifact.root_module.linkSystemLibrary("ws2_32", .{});
+        artifact.root_module.linkSystemLibrary("bcrypt", .{});
     } else {
-        artifact.addObjectFile(b.path("build/libavif-install/lib/libavif.a"));
-        artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/libaom.a"));
-        artifact.linkSystemLibrary("pthread");
-        artifact.linkSystemLibrary("m");
+        artifact.root_module.addObjectFile(b.path("build/libavif-install/lib/libavif.a"));
+        artifact.root_module.addObjectFile(b.path("build/libavif/_deps/libaom-build/libaom.a"));
+        artifact.root_module.linkSystemLibrary("pthread", .{});
+        artifact.root_module.linkSystemLibrary("m", .{});
     }
-    artifact.linkLibC();
+    artifact.root_module.link_libc = true;
 }
 
 // ── libheif system library (CLI + Mac native ffi_lib, Phase 1: system only) ──
-// macOS: pkg-config --cflags-only-I/--libs-only-L libheif。失敗時は Homebrew fallback。
-// Linux: 未対応 (この関数は mac-targeted artifact にのみ呼ばれる)。
-fn addLibHeifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    const pkg_cflags = b.runAllowFail(
-        &.{ "pkg-config", "--cflags-only-I", "libheif" },
-        @constCast(&@as(u8, 0)),
-        .Ignore,
-    ) catch null;
-    const pkg_libs = b.runAllowFail(
-        &.{ "pkg-config", "--libs-only-L", "libheif" },
-        @constCast(&@as(u8, 0)),
-        .Ignore,
-    ) catch null;
-
-    if (pkg_cflags) |cflags| {
-        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, cflags, " \n\r"), ' ');
-        while (it.next()) |token| {
-            if (std.mem.startsWith(u8, token, "-I"))
-                artifact.addSystemIncludePath(.{ .cwd_relative = token[2..] });
-        }
-    } else {
-        artifact.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/libheif/include" });
-    }
-
-    if (pkg_libs) |libs| {
-        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, libs, " \n\r"), ' ');
-        while (it.next()) |token| {
-            if (std.mem.startsWith(u8, token, "-L"))
-                artifact.addLibraryPath(.{ .cwd_relative = token[2..] });
-        }
-    } else {
-        artifact.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/libheif/lib" });
-    }
-
-    artifact.linkSystemLibrary("heif");
-    artifact.linkLibC();
+// Zig 0.16 の linkSystemLibrary が pkg-config を自動的に呼ぶため、
+// 手動パス解決は不要。linkSystemLibrary に一任する。
+fn addLibHeifSystem(_: *std.Build, artifact: *std.Build.Step.Compile) void {
+    artifact.root_module.linkSystemLibrary("heif", .{});
+    artifact.root_module.link_libc = true;
 }
 
-fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    const target_os = artifact.rootModuleTarget().os.tag;
-    const is_macos = target_os == .macos;
-
-    if (target_os == .windows) {
-        std.io.getStdErr().writer().print(
-            "error: -Davif=system is not supported on Windows. Use -Davif=static (prebuild libavif with CMake; see docs/windows-rollout-plan.md).\n",
-            .{},
-        ) catch {};
+// Zig 0.16 の linkSystemLibrary が pkg-config を自動的に呼ぶため、
+// 手動パス解決は不要。Windows は system モード非対応。
+fn addLibAvifSystem(artifact: *std.Build.Step.Compile) void {
+    if (artifact.rootModuleTarget().os.tag == .windows) {
+        std.debug.print("error: -Davif=system is not supported on Windows. Use -Davif=static.\n", .{});
         std.process.exit(1);
     }
-
-    const pkg_cflags = b.runAllowFail(
-        &.{ "pkg-config", "--cflags-only-I", "libavif" },
-        @constCast(&@as(u8, 0)),
-        .Ignore,
-    ) catch null;
-    const pkg_libs = b.runAllowFail(
-        &.{ "pkg-config", "--libs-only-L", "libavif" },
-        @constCast(&@as(u8, 0)),
-        .Ignore,
-    ) catch null;
-
-    // Linux: どちらか一方でも欠けたら即エラー終了
-    if (!is_macos and pkg_cflags == null) {
-        std.io.getStdErr().writer().print(
-            "error: libavif headers not found for target {s}.\n" ++
-                "  Install libavif development package and pkg-config\n" ++
-                "  (e.g. apt install libavif-dev pkg-config)\n",
-            .{@tagName(target_os)},
-        ) catch {};
-        std.process.exit(1);
-    }
-    if (!is_macos and pkg_libs == null) {
-        std.io.getStdErr().writer().print(
-            "error: libavif library path not found for target {s}.\n" ++
-                "  Install libavif development package and pkg-config\n" ++
-                "  (e.g. apt install libavif-dev pkg-config)\n",
-            .{@tagName(target_os)},
-        ) catch {};
-        std.process.exit(1);
-    }
-
-    // インクルードパス解決
-    if (pkg_cflags) |cflags| {
-        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, cflags, " \n\r"), ' ');
-        while (it.next()) |token| {
-            if (std.mem.startsWith(u8, token, "-I"))
-                artifact.addSystemIncludePath(.{ .cwd_relative = token[2..] });
-        }
-    } else {
-        // macOS のみ Homebrew fallback (Apple Silicon 前提)
-        artifact.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
-    }
-
-    // ライブラリパス解決
-    if (pkg_libs) |libs| {
-        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, libs, " \n\r"), ' ');
-        while (it.next()) |token| {
-            if (std.mem.startsWith(u8, token, "-L"))
-                artifact.addLibraryPath(.{ .cwd_relative = token[2..] });
-        }
-    } else {
-        // macOS のみ Homebrew fallback (Apple Silicon 前提)
-        artifact.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
-    }
-
-    artifact.linkSystemLibrary("avif");
-    artifact.linkLibC();
+    artifact.root_module.linkSystemLibrary("avif", .{});
+    artifact.root_module.link_libc = true;
 }

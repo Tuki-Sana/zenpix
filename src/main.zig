@@ -37,28 +37,22 @@ const CliArgs = struct {
     avif_speed: u8 = 6,
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(arena);
 
     if (args.len < 3) {
-        try std.io.getStdErr().writer().writeAll(usage);
+        std.debug.print("{s}", .{usage});
         std.process.exit(1);
     }
 
     const cli = parseArgs(args) catch |err| {
-        const stderr = std.io.getStdErr().writer();
-        try stderr.print("Error: {s}\n\n{s}", .{ @errorName(err), usage });
+        std.debug.print("Error: {s}\n\n{s}", .{ @errorName(err), usage });
         std.process.exit(1);
     };
 
-    runPipeline(allocator, cli) catch |err| {
-        const stderr = std.io.getStdErr().writer();
-        try stderr.print("Error: {s}\n", .{@errorName(err)});
+    runPipeline(init.gpa, init.io, cli) catch |err| {
+        std.debug.print("Error: {s}\n", .{@errorName(err)});
         std.process.exit(1);
     };
 }
@@ -67,9 +61,9 @@ pub fn main() !void {
 // パイプライン実装
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
+fn runPipeline(allocator: std.mem.Allocator, io: std.Io, cli: CliArgs) !void {
     // ── 入力ファイル読み込み ──────────────────────────────────────────────────
-    const input_data = try std.fs.cwd().readFileAlloc(allocator, cli.input, 256 * 1024 * 1024);
+    const input_data = try std.Io.Dir.cwd().readFileAlloc(io, cli.input, allocator, .limited(256 * 1024 * 1024));
     defer allocator.free(input_data);
 
     // ── フォーマット検出 & デコード ──────────────────────────────────────────
@@ -78,8 +72,10 @@ fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
         .jpeg => pict.decode.jpegDecoder(),
         .png  => pict.decode.pngDecoder(),
         .webp => pict.decode.webpDecoder(),
-        .unknown => {
-            std.log.err("Unsupported input format (expected JPEG, PNG, or WebP): {s}", .{cli.input});
+        .avif => pict.decode.avifDecoder(),
+        .gif  => pict.decode.gifDecoder(),
+        .heic, .unknown => {
+            std.log.err("Unsupported input format: {s}", .{cli.input});
             return error.UnsupportedFormat;
         },
     };
@@ -141,7 +137,7 @@ fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
     };
 
     // ── エンコード (出力フォーマット分岐) ──────────────────────────────────────
-    const out_ext = std.fs.path.extension(cli.output);
+    const out_ext = std.Io.Dir.path.extension(cli.output);
     const is_avif = std.ascii.eqlIgnoreCase(out_ext, ".avif");
 
     var encoder = if (is_avif) pict.encode.avifEncoder() else pict.encode.webpEncoder();
@@ -165,7 +161,7 @@ fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
     std.log.info("Encoded: {} bytes {s} → {s}", .{ encoded.data.len, fmt_name, cli.output });
 
     // ── 出力ファイル書き込み ─────────────────────────────────────────────────
-    try std.fs.cwd().writeFile(.{
+    try std.Io.Dir.cwd().writeFile(io, .{
         .sub_path = cli.output,
         .data     = encoded.data,
     });
@@ -202,12 +198,12 @@ fn computeOutputDims(
 // 引数パーサ
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn parseArgs(args: []const []const u8) !CliArgs {
+fn parseArgs(args: []const [:0]const u8) !CliArgs {
     if (args.len < 3) return error.TooFewArguments;
 
     // --version
     if (std.mem.eql(u8, args[1], "--version")) {
-        try std.io.getStdOut().writer().print("pict-zig-engine v{s}\n", .{"0.1.0"});
+        std.debug.print("pict-zig-engine v0.1.0\n", .{});
         std.process.exit(0);
     }
 
@@ -258,7 +254,7 @@ fn parseArgs(args: []const []const u8) !CliArgs {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test "parseArgs: basic input/output" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqualStrings("in.jpg", cli.input);
     try std.testing.expectEqualStrings("out.webp", cli.output);
@@ -267,119 +263,119 @@ test "parseArgs: basic input/output" {
 }
 
 test "parseArgs: -w and -h" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-w", "1920", "-h", "1080" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-w", "1920", "-h", "1080" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u32, 1920), cli.width.?);
     try std.testing.expectEqual(@as(u32, 1080), cli.height.?);
 }
 
 test "parseArgs: --lossless flag" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--lossless" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "--lossless" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(true, cli.lossless);
 }
 
 test "parseArgs: -q valid value (80)" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "80" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-q", "80" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(f32, 80.0), cli.quality);
 }
 
 test "parseArgs: -q boundary 0 (valid)" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "0" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-q", "0" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(f32, 0.0), cli.quality);
 }
 
 test "parseArgs: -q boundary 100 (valid)" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "100" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-q", "100" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(f32, 100.0), cli.quality);
 }
 
 test "parseArgs: -q negative returns InvalidQuality" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "-1" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-q", "-1" };
     try std.testing.expectError(error.InvalidQuality, parseArgs(&args));
 }
 
 test "parseArgs: -q over 100 returns InvalidQuality" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "101" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-q", "101" };
     try std.testing.expectError(error.InvalidQuality, parseArgs(&args));
 }
 
 test "parseArgs: -q NaN returns InvalidQuality" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "nan" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-q", "nan" };
     try std.testing.expectError(error.InvalidQuality, parseArgs(&args));
 }
 
 test "parseArgs: too few arguments" {
-    const args = [_][]const u8{ "pict", "in.jpg" };
+    const args = [_][:0]const u8{ "pict", "in.jpg" };
     try std.testing.expectError(error.TooFewArguments, parseArgs(&args));
 }
 
 test "parseArgs: unknown argument" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--unknown" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "--unknown" };
     try std.testing.expectError(error.UnknownArgument, parseArgs(&args));
 }
 
 test "parseArgs: missing value for -w" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-w" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-w" };
     try std.testing.expectError(error.MissingValue, parseArgs(&args));
 }
 
 test "parseArgs: --threads 2 (explicit)" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--threads", "2" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "--threads", "2" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u32, 2), cli.threads);
 }
 
 test "parseArgs: --threads 0 (auto)" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--threads", "0" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "--threads", "0" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u32, 0), cli.threads);
 }
 
 test "parseArgs: -t shorthand for --threads" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-t", "4" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "-t", "4" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u32, 4), cli.threads);
 }
 
 test "parseArgs: --threads default is 1" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u32, 1), cli.threads);
 }
 
 test "parseArgs: --threads missing value" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--threads" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.webp", "--threads" };
     try std.testing.expectError(error.MissingValue, parseArgs(&args));
 }
 
 test "parseArgs: --avif-speed default is 6" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.avif" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.avif" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u8, 6), cli.avif_speed);
 }
 
 test "parseArgs: --avif-speed boundary 0 (valid)" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "0" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "0" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u8, 0), cli.avif_speed);
 }
 
 test "parseArgs: --avif-speed boundary 10 (valid)" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "10" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "10" };
     const cli = try parseArgs(&args);
     try std.testing.expectEqual(@as(u8, 10), cli.avif_speed);
 }
 
 test "parseArgs: --avif-speed 11 returns InvalidAvifSpeed" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "11" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "11" };
     try std.testing.expectError(error.InvalidAvifSpeed, parseArgs(&args));
 }
 
 test "parseArgs: --avif-speed missing value" {
-    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed" };
+    const args = [_][:0]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed" };
     try std.testing.expectError(error.MissingValue, parseArgs(&args));
 }

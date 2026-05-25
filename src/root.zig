@@ -733,7 +733,7 @@ test "pict_decode_v2: WebP (pict_encode_webp → pict_decode_v2)" {
 
 test "pict_decode_v3: iCCP 付き PNG で ICC バッファを返す" {
     const path = "vendor/libavif/tests/data/paris_icc_exif_xmp.png";
-    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, path, 4 * 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(4 * 1024 * 1024));
     defer std.testing.allocator.free(bytes);
 
     var out_w: u32 = 0;
@@ -959,19 +959,19 @@ test "pict_jpeg_orientation: 非 JPEG データは 1 を返す" {
 }
 
 test "pict_jpeg_orientation: orientation=1 fixture → 1 を返す" {
-    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_1.jpg", 4 * 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "test/fixtures/jpeg_orientation_1.jpg", std.testing.allocator, .limited(4 * 1024 * 1024));
     defer std.testing.allocator.free(bytes);
     try std.testing.expectEqual(@as(u8, 1), pict_jpeg_orientation(bytes.ptr, bytes.len));
 }
 
 test "pict_jpeg_orientation: orientation=6 fixture → 6 を返す" {
-    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_6.jpg", 4 * 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "test/fixtures/jpeg_orientation_6.jpg", std.testing.allocator, .limited(4 * 1024 * 1024));
     defer std.testing.allocator.free(bytes);
     try std.testing.expectEqual(@as(u8, 6), pict_jpeg_orientation(bytes.ptr, bytes.len));
 }
 
 test "pict_jpeg_orientation: orientation=8 fixture → 8 を返す" {
-    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_8.jpg", 4 * 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "test/fixtures/jpeg_orientation_8.jpg", std.testing.allocator, .limited(4 * 1024 * 1024));
     defer std.testing.allocator.free(bytes);
     try std.testing.expectEqual(@as(u8, 8), pict_jpeg_orientation(bytes.ptr, bytes.len));
 }
