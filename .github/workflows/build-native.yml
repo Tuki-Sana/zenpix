@@ -19,10 +19,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Zig 0.13.0
+      - name: Install Zig 0.16.0
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.13.0
+          version: 0.16.0
 
       - name: Install build tools (cmake / nasm / ninja / g++)
         run: sudo apt-get install -y cmake nasm ninja-build g++
@@ -108,10 +108,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Zig 0.13.0
+      - name: Install Zig 0.16.0
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.13.0
+          version: 0.16.0
 
       - name: Install build tools (cmake / libheif)
         # arm64 では nasm 不要（libaom は NASM なしでビルド可能）
@@ -198,10 +198,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Zig 0.13.0
+      - name: Install Zig 0.16.0
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.13.0
+          version: 0.16.0
 
       - name: Install build tools (cmake / ninja / nasm / libheif)
         # x86_64: libaom のアセンブリに NASM が必要（Apple Silicon ジョブとは別）
@@ -295,10 +295,10 @@ jobs:
         with:
           arch: x64
 
-      - name: Install Zig 0.13.0
+      - name: Install Zig 0.16.0
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.13.0
+          version: 0.16.0
 
       - name: Install Ninja and NASM
         run: choco install ninja nasm -y --no-progress
