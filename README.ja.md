@@ -1,5 +1,8 @@
 # zenpix
 
+> [!IMPORTANT]
+> **アーカイブ済み:** このリポジトリは zenpix の旧 Zig 実装で、現在はメンテナンスしていません。macOS 更新後にビルドの再現性が低下し、Zig ベースの CI ビルド時間も課題になったため、開発は[現在の C ベースの zenpix](https://github.com/tsukasa-art/zenpix)へ移行しました。
+
 ![zenpix](assets/zenpix-banner.jpg)
 
 Zig 製の高速画像処理ライブラリです。JPEG / PNG / WebP / AVIF / GIF をデコードし、Lanczos-3 リサイズを経て WebP / AVIF / PNG にエンコードします。Node.js / Bun / Deno 対応（FFI 経由）。ビルド環境は不要です。

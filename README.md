@@ -1,5 +1,8 @@
 # zenpix
 
+> [!IMPORTANT]
+> **Archived:** This repository contains the legacy Zig implementation of zenpix and is no longer maintained. After a macOS update affected build reproducibility and Zig-based CI build times became impractical, development moved to the [current C-based zenpix](https://github.com/tsukasa-art/zenpix).
+
 ![zenpix](assets/zenpix-banner.jpg)
 
 High-performance image processing library built with Zig. Decodes JPEG / PNG / WebP / AVIF / GIF and encodes to WebP / AVIF / PNG with Lanczos-3 resizing. Works with Node.js, Bun, and Deno via FFI — no build tools required.
